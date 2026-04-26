@@ -31,7 +31,7 @@ export default function AddProfessionalModal({ isOpen, onClose, onSave }: AddPro
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    onSave({ ...formData, status: 'active' });
     onClose();
   };
 

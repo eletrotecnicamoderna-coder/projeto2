@@ -24,6 +24,7 @@ const INITIAL_USERS: (Patient | Doctor)[] = [
     cpf: '123.456.789-00',
     birthDate: '1985-05-20',
     address: 'Rua das Flores, 123 - São Paulo, SP',
+    status: 'active',
   },
   {
     id: 'p2',
@@ -34,6 +35,7 @@ const INITIAL_USERS: (Patient | Doctor)[] = [
     cpf: '987.654.321-00',
     birthDate: '1990-10-15',
     address: 'Av. Paulista, 1000 - São Paulo, SP',
+    status: 'active',
   },
   {
     id: 'd1',
@@ -45,6 +47,7 @@ const INITIAL_USERS: (Patient | Doctor)[] = [
     specialty: 'Cardiologia',
     crm: 'CRM-SP 123456',
     address: 'Av. Paulista, 500 - Consultório 10',
+    status: 'active',
   }
 ];
 
@@ -109,11 +112,15 @@ export default function App() {
   const handleLogin = (role: UserRole, email?: string) => {
     if (role === 'admin') {
       setUserRole('admin');
-      setCurrentUser({ id: 'admin1', name: 'Admin MedSync', email: 'admin@medsync.com', role: 'admin', phone: '', cpf: '' });
+      setCurrentUser({ id: 'admin1', name: 'Admin MedSync', email: 'admin@medsync.com', role: 'admin', phone: '', cpf: '', status: 'active' });
       setActiveTab('admin-dashboard');
     } else {
       const user = users.find(u => u.email === email && u.role === role);
       if (user) {
+        if (user.role === 'professional' && user.status === 'pending') {
+          alert('Seu cadastro profissional está em análise. Por favor, aguarde a aprovação do administrador.');
+          return;
+        }
         setUserRole(user.role);
         setCurrentUser(user);
         setActiveTab(user.role === 'professional' ? 'prof-dashboard' : 'appointments');
@@ -139,11 +146,21 @@ export default function App() {
     const newUser: Patient | Doctor = {
       id: `${selectedRole === 'patient' ? 'p' : 'd'}${users.length + 1}`,
       role: selectedRole,
+      status: selectedRole === 'professional' ? 'pending' : 'active',
       ...data
     } as any;
     setUsers([...users, newUser]);
     setAuthView('login');
-    alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
+    if (selectedRole === 'professional') {
+      alert('Cadastro realizado com sucesso! Sua conta profissional está em análise pelo administrador.');
+    } else {
+      alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
+    }
+  };
+
+  const handleApprovePro = (id: string) => {
+    setUsers(users.map(u => u.id === id ? { ...u, status: 'active' } : u));
+    alert('Profissional aprovado com sucesso!');
   };
 
   const NavItem = ({ id, icon: Icon, label }: { id: string, icon: any, label: string }) => (
@@ -565,10 +582,10 @@ export default function App() {
 
             {activeTab === 'admin-users' && (
                <motion.div key="admin-users" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200">
+                 <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                     <div>
-                      <h3 className="font-bold text-slate-800 text-sm">Base de Usuários</h3>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Gerencie pacientes e profissionais</p>
+                      <h3 className="font-bold text-slate-800 text-lg tracking-tight">Gestão de Usuários</h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Aprovação e manutenção da base</p>
                     </div>
                     <button 
                       onClick={() => setIsAdminProModalOpen(true)}
@@ -578,17 +595,37 @@ export default function App() {
                       Novo Profissional
                     </button>
                  </div>
-                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                    <div className="divide-y divide-slate-100">
                     {users.map(u => (
-                      <div key={u.id} className="p-6 flex items-center justify-between">
+                      <div key={u.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
                          <div className="flex items-center gap-4">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.role === 'professional' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                              {u.role === 'professional' ? <Stethoscope className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-sm ${u.role === 'professional' ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                              {u.role === 'professional' ? <Stethoscope className="w-5 h-5" /> : <User className="w-5 h-5" />}
                             </div>
-                            <p className="font-bold text-slate-800">{u.name}</p>
+                            <div>
+                               <p className="font-bold text-slate-800 text-sm leading-none">{u.name}</p>
+                               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1.5">{u.email}</p>
+                            </div>
                          </div>
-                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{u.role}</span>
+                         <div className="flex items-center justify-between sm:justify-end gap-6">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{u.role === 'professional' ? 'Profissional' : 'Paciente'}</span>
+                              <span className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full border mt-1 shadow-sm ${
+                                u.status === 'active' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+                              }`}>
+                                {u.status === 'active' ? 'Ativo' : 'Pendente'}
+                              </span>
+                            </div>
+                            {u.role === 'professional' && u.status === 'pending' && (
+                              <button 
+                                onClick={() => handleApprovePro(u.id)}
+                                className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all shadow-md shadow-green-100 hover:-translate-y-0.5 active:translate-y-0"
+                              >
+                                Aprovar
+                              </button>
+                            )}
+                         </div>
                       </div>
                     ))}
                     </div>

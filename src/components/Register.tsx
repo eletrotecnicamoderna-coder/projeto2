@@ -5,7 +5,7 @@
 
 import { useState, FormEvent, ChangeEvent } from 'react';
 import { motion } from 'motion/react';
-import { Calendar, User, Mail, Lock, Phone, CreditCard, ArrowLeft, CheckCircle2, MapPin } from 'lucide-react';
+import { Calendar, User, Mail, Lock, Phone, CreditCard, ArrowLeft, CheckCircle2, MapPin, Stethoscope, ShieldCheck } from 'lucide-react';
 
 interface RegisterProps {
   onBackToLogin: () => void;
@@ -13,7 +13,7 @@ interface RegisterProps {
 }
 
 export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
-  const role = 'patient';
+  const [role, setRole] = useState<'patient' | 'professional'>('patient');
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -55,7 +55,7 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
             </div>
             <h1 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2">MedSync</h1>
             <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest">
-              Cadastro de Paciente
+              Cadastro {role === 'patient' ? 'de Paciente' : 'de Profissional'}
             </p>
           </div>
 
@@ -103,6 +103,24 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
                 animate={{ opacity: 1, x: 0 }}
                 className="space-y-4"
               >
+                <div className="flex p-1 bg-slate-100 rounded-2xl mb-4">
+                  <button 
+                    type="button"
+                    onClick={() => setRole('patient')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'patient' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                  >
+                    <User className="w-4 h-4" />
+                    Paciente
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setRole('professional')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'professional' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                  >
+                    <Stethoscope className="w-4 h-4" />
+                    Médico
+                  </button>
+                </div>
                 <div className="relative group">
                   <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
                   <input 
@@ -188,12 +206,39 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
                   <input 
                     name="address"
                     required
-                    placeholder="Endereço Residencial / Comercial"
+                    placeholder={role === 'patient' ? "Endereço Residencial" : "Endereço Comercial"}
                     value={formData.address}
                     onChange={handleChange}
                     className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-medium text-sm text-slate-700 shadow-sm"
                   />
                 </div>
+
+                {role === 'professional' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="relative group">
+                      <Stethoscope className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                      <input 
+                        name="specialty"
+                        required
+                        placeholder="Especialidade"
+                        value={formData.specialty}
+                        onChange={handleChange}
+                        className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-medium text-sm text-slate-700 shadow-sm"
+                      />
+                    </div>
+                    <div className="relative group">
+                      <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                      <input 
+                        name="crm"
+                        required
+                        placeholder="CRM / Registro"
+                        value={formData.crm}
+                        onChange={handleChange}
+                        className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-medium text-sm text-slate-700 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 

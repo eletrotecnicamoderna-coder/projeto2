@@ -4,6 +4,7 @@
  */
 
 export type UserRole = 'patient' | 'professional' | 'admin';
+export type UserStatus = 'active' | 'pending' | 'rejected';
 
 export interface UserProfile {
   id: string;
@@ -13,6 +14,7 @@ export interface UserProfile {
   phone: string;
   cpf: string;
   address?: string;
+  status: UserStatus;
   // Patient specific
   birthDate?: string;
   // Professional specific
