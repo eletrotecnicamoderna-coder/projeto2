@@ -5,15 +5,15 @@
 
 import { useState, FormEvent } from 'react';
 import { motion } from 'motion/react';
-import { Calendar, User, ShieldCheck, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Calendar, User, ShieldCheck, Mail, Lock, ArrowRight, Stethoscope } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (role: 'patient' | 'admin', email: string) => void;
+  onLogin: (role: 'patient' | 'admin' | 'professional', email: string) => void;
   onShowRegister: () => void;
 }
 
 export default function Login({ onLogin, onShowRegister }: LoginProps) {
-  const [role, setRole] = useState<'patient' | 'admin'>('patient');
+  const [role, setRole] = useState<'patient' | 'admin' | 'professional'>('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -27,10 +27,10 @@ export default function Login({ onLogin, onShowRegister }: LoginProps) {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-lg bg-white rounded-[32px] shadow-2xl border border-slate-200 overflow-hidden flex flex-col md:flex-row"
+        className="w-full max-w-xl bg-white rounded-[32px] shadow-2xl border border-slate-200 overflow-hidden flex flex-col md:flex-row"
       >
         {/* Left Side: Illustration / Branding */}
-        <div className="w-full md:w-48 bg-blue-600 p-8 flex flex-col items-center justify-center text-white text-center gap-4">
+        <div className="w-full md:w-48 bg-blue-600 p-8 flex flex-col items-center justify-center text-white text-center gap-4 shrink-0">
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md border border-white/30">
             <Calendar className="w-8 h-8 text-white" />
           </div>
@@ -41,8 +41,8 @@ export default function Login({ onLogin, onShowRegister }: LoginProps) {
         </div>
 
         {/* Right Side: Form */}
-        <div className="flex-1 p-8 md:p-12">
-          <div className="mb-10 text-center md:text-left">
+        <div className="flex-1 p-8 md:p-10">
+          <div className="mb-8 text-center md:text-left">
             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Portal Clínica</h2>
             <p className="text-sm text-slate-500 font-medium mt-2">Escolha seu tipo de acesso para continuar</p>
           </div>
@@ -50,14 +50,21 @@ export default function Login({ onLogin, onShowRegister }: LoginProps) {
           <div className="flex p-1 bg-slate-100 rounded-2xl mb-8">
             <button 
               onClick={() => setRole('patient')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${role === 'patient' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'patient' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             >
               <User className="w-4 h-4" />
               Paciente
             </button>
             <button 
+              onClick={() => setRole('professional')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'professional' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <Stethoscope className="w-4 h-4" />
+              Médico
+            </button>
+            <button 
               onClick={() => setRole('admin')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${role === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             >
               <ShieldCheck className="w-4 h-4" />
               Admin

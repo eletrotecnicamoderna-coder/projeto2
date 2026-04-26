@@ -3,22 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export interface Patient {
+export type UserRole = 'patient' | 'professional' | 'admin';
+
+export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  role: UserRole;
   phone: string;
   cpf: string;
-  birthDate: string;
   address?: string;
+  // Patient specific
+  birthDate?: string;
+  // Professional specific
+  specialty?: string;
+  crm?: string;
 }
 
-export interface Doctor {
-  id: string;
-  name: string;
+export interface Patient extends UserProfile {
+  role: 'patient';
+  birthDate: string;
+}
+
+export interface Doctor extends UserProfile {
+  role: 'professional';
   specialty: string;
   crm: string;
-  email: string;
 }
 
 export type AppointmentStatus = 'scheduled' | 'completed' | 'canceled' | 'missed';

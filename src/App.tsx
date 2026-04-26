@@ -4,21 +4,22 @@
  */
 
 import { useState } from 'react';
-import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users } from 'lucide-react';
+import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // Types
-import { Appointment, Patient, AppointmentStatus } from './types';
+import { Appointment, Patient, AppointmentStatus, UserRole, UserProfile, Doctor } from './types';
 import Login from './components/Login';
 
 // Mock Data
-const INITIAL_USERS: Patient[] = [
+const INITIAL_USERS: (Patient | Doctor)[] = [
   {
     id: 'p1',
     name: 'Maria Oliveira',
     email: 'maria.oliveira@email.com',
+    role: 'patient',
     phone: '(11) 98765-4321',
     cpf: '123.456.789-00',
     birthDate: '1985-05-20',
@@ -28,10 +29,22 @@ const INITIAL_USERS: Patient[] = [
     id: 'p2',
     name: 'João Silva',
     email: 'joao.silva@email.com',
+    role: 'patient',
     phone: '(11) 91234-5678',
     cpf: '987.654.321-00',
     birthDate: '1990-10-15',
     address: 'Av. Paulista, 1000 - São Paulo, SP',
+  },
+  {
+    id: 'd1',
+    name: 'Dr. Cláudio Santos',
+    email: 'claudio.santos@medsync.com',
+    role: 'professional',
+    phone: '(11) 99999-1111',
+    cpf: '111.111.111-11',
+    specialty: 'Cardiologia',
+    crm: 'CRM-SP 123456',
+    address: 'Av. Paulista, 500 - Consultório 10',
   }
 ];
 
@@ -66,25 +79,26 @@ const INITIAL_APPOINTMENTS: Appointment[] = [
 
 import AppointmentModal from './components/AppointmentModal';
 import Register from './components/Register';
+import AddProfessionalModal from './components/AddProfessionalModal';
 
-type UserRole = 'patient' | 'admin' | null;
 type AuthView = 'login' | 'register';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<Patient | { id: string, name: string, role: 'admin' } | null>(null);
-  const [userRole, setUserRole] = useState<UserRole>(null);
-  const [authView, setAuthView] = useState<AuthView>('login');
-  const [activeTab, setActiveTab] = useState<'appointments' | 'history' | 'notifications' | 'profile' | 'admin-dashboard' | 'admin-patients'>('appointments');
-  const [users, setUsers] = useState<Patient[]>(INITIAL_USERS);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
+  const [activeTab, setActiveTab] = useState<string>('appointments');
+  const [users, setUsers] = useState<(Patient | Doctor)[]>(INITIAL_USERS);
   const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAdminProModalOpen, setIsAdminProModalOpen] = useState(false);
 
   const handleSaveAppointment = (data: any) => {
     if (!currentUser) return;
     const newAppointment: Appointment = {
       id: Math.random().toString(36).substr(2, 9),
-      patientId: currentUser.id,
-      doctorId: data.doctorId,
+      patientId: userRole === 'patient' ? currentUser.id : data.patientId || 'p1',
+      doctorId: userRole === 'professional' ? currentUser.id : data.doctorId,
       dateTime: data.dateTime,
       status: 'scheduled',
       notes: data.notes,
@@ -92,19 +106,19 @@ export default function App() {
     setAppointments([newAppointment, ...appointments]);
   };
 
-  const handleLogin = (role: 'patient' | 'admin', email?: string) => {
+  const handleLogin = (role: UserRole, email?: string) => {
     if (role === 'admin') {
       setUserRole('admin');
-      setCurrentUser({ id: 'admin1', name: 'Claudio Admin', role: 'admin' });
+      setCurrentUser({ id: 'admin1', name: 'Admin MedSync', email: 'admin@medsync.com', role: 'admin', phone: '', cpf: '' });
       setActiveTab('admin-dashboard');
     } else {
-      const user = users.find(u => u.email === email);
+      const user = users.find(u => u.email === email && u.role === role);
       if (user) {
-        setUserRole('patient');
+        setUserRole(user.role);
         setCurrentUser(user);
-        setActiveTab('appointments');
+        setActiveTab(user.role === 'professional' ? 'prof-dashboard' : 'appointments');
       } else {
-        alert('Usuário não encontrado. Verifique seu e-mail ou cadastre-se.');
+        alert('Usuário não encontrado para este perfil. Verifique seu e-mail ou cadastre-se.');
       }
     }
   };
@@ -121,17 +135,18 @@ export default function App() {
     missed: 'Faltou',
   };
 
-  const handleRegister = (data: any) => {
-    const newUser: Patient = {
-      id: `p${users.length + 1}`,
+  const handleRegister = (data: any, selectedRole: 'patient' | 'professional') => {
+    const newUser: Patient | Doctor = {
+      id: `${selectedRole === 'patient' ? 'p' : 'd'}${users.length + 1}`,
+      role: selectedRole,
       ...data
-    };
+    } as any;
     setUsers([...users, newUser]);
     setAuthView('login');
     alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
   };
 
-  const NavItem = ({ id, icon: Icon, label }: { id: typeof activeTab, icon: any, label: string }) => (
+  const NavItem = ({ id, icon: Icon, label }: { id: string, icon: any, label: string }) => (
     <button
       onClick={() => setActiveTab(id)}
       className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${
@@ -167,29 +182,42 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-1">
-          {userRole === 'patient' ? (
+          {userRole === 'patient' && (
             <>
               <NavItem id="appointments" icon={Calendar} label="Agenda" />
               <NavItem id="history" icon={History} label="Histórico" />
-              <NavItem id="notifications" icon={Bell} label="Notificações" />
               <NavItem id="profile" icon={User} label="Meu Perfil" />
             </>
-          ) : (
+          )}
+          {userRole === 'professional' && (
+            <>
+              <NavItem id="prof-dashboard" icon={ShieldCheck} label="Painel Médico" />
+              <NavItem id="prof-patients" icon={Users} label="Meus Pacientes" />
+            </>
+          )}
+          {userRole === 'admin' && (
             <>
               <NavItem id="admin-dashboard" icon={ShieldCheck} label="Painel Admin" />
-              <NavItem id="admin-patients" icon={Users} label="Gestão de Pacientes" />
+              <NavItem id="admin-users" icon={Users} label="Gestão de Usuários" />
             </>
           )}
         </nav>
 
         <div className="p-6 border-t border-slate-100">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3 group cursor-pointer hover:bg-white transition-colors mb-4">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center border overflow-hidden shadow-sm ${userRole === 'admin' ? 'bg-amber-100 border-amber-200' : 'bg-blue-100 border-blue-200'}`}>
-              {userRole === 'admin' ? <ShieldCheck className="w-6 h-6 text-amber-600" /> : <User className="w-6 h-6 text-blue-600" />}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center border shadow-sm ${
+              userRole === 'admin' ? 'bg-amber-100' : 
+              userRole === 'professional' ? 'bg-purple-100' : 'bg-blue-100'
+            }`}>
+              {userRole === 'admin' ? <ShieldCheck className="w-5 h-5 text-amber-600" /> : 
+               userRole === 'professional' ? <Stethoscope className="w-5 h-5 text-purple-600" /> : 
+               <User className="w-5 h-5 text-blue-600" />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold truncate">{currentUser?.name}</p>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{userRole === 'admin' ? 'Administrador' : 'Paciente'}</p>
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                {userRole === 'admin' ? 'Administrador' : userRole === 'professional' ? 'Médico' : 'Paciente'}
+              </p>
             </div>
           </div>
           <button 
@@ -210,13 +238,14 @@ export default function App() {
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">
               {activeTab === 'appointments' && 'Gestão de Agenda'}
               {activeTab === 'history' && 'Histórico Médico'}
-              {activeTab === 'notifications' && 'Centro de Mensagens'}
-              {activeTab === 'profile' && 'Perfil do Paciente'}
+              {activeTab === 'profile' && 'Perfil do Usuário'}
+              {activeTab === 'prof-dashboard' && 'Painel de Consultas'}
+              {activeTab === 'prof-patients' && 'Meus Pacientes'}
               {activeTab === 'admin-dashboard' && 'Visão Geral da Clínica'}
-              {activeTab === 'admin-patients' && 'Base de Pacientes'}
+              {activeTab === 'admin-users' && 'Gestão de Usuários'}
             </h1>
             <p className="text-xs text-slate-500 font-medium tracking-tight">
-              {userRole === 'admin' ? 'Área Restrita Administrativa' : `Bem-vinda de volta, ${currentUser?.name.split(' ')[0]}`}
+              {userRole === 'admin' ? 'Área Administrativa' : userRole === 'professional' ? 'Espaço do Médico' : `Bem-vinda de volta, ${currentUser?.name.split(' ')[0]}`}
             </p>
           </div>
           
@@ -243,6 +272,12 @@ export default function App() {
             isOpen={isModalOpen} 
             onClose={() => setIsModalOpen(false)} 
             onSave={handleSaveAppointment}
+          />
+
+          <AddProfessionalModal 
+            isOpen={isAdminProModalOpen}
+            onClose={() => setIsAdminProModalOpen(false)}
+            onSave={(data) => handleRegister(data, 'professional')}
           />
 
           <AnimatePresence mode="wait">
@@ -436,66 +471,130 @@ export default function App() {
             )}
 
             {activeTab === 'profile' && (
-              <motion.div
-                key="profile"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="max-w-2xl mx-auto space-y-6"
-              >
-                {/* ... (existing profile content) */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 flex flex-col items-center">
-                  <div className="relative group">
-                    <div className="w-28 h-28 rounded-[2rem] bg-slate-50 flex items-center justify-center border-2 border-slate-100 group-hover:bg-white transition-all overflow-hidden cursor-pointer shadow-inner">
-                      <User className="w-14 h-14 text-slate-300 group-hover:text-blue-600 transition-colors" />
+              <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto">
+                 <div className="bg-white rounded-[40px] border border-slate-200 p-12 text-center shadow-xl">
+                    <div className="w-24 h-24 bg-slate-50 rounded-3xl mx-auto flex items-center justify-center border-2 border-slate-100 mb-8">
+                       <User className="w-12 h-12 text-slate-300" />
                     </div>
-                    <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white border-4 border-white shadow-lg">
-                      <Plus className="w-4 h-4" />
+                    <h2 className="text-2xl font-bold text-slate-900">{currentUser?.name}</h2>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{userRole}</p>
+                    
+                    <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                       <div className="p-5 bg-slate-50 rounded-2xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase mb-1">E-mail</p>
+                          <p className="text-xs font-bold text-slate-700">{currentUser?.email}</p>
+                       </div>
+                       <div className="p-5 bg-slate-50 rounded-2xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Telefone</p>
+                          <p className="text-xs font-bold text-slate-700">{currentUser?.phone}</p>
+                       </div>
+                       {userRole === 'professional' && (
+                         <>
+                            <div className="p-5 bg-purple-50 rounded-2xl">
+                               <p className="text-[9px] font-black text-purple-400 uppercase mb-1">Especialidade</p>
+                               <p className="text-xs font-bold text-purple-700">{currentUser && 'specialty' in currentUser ? (currentUser as any).specialty : ''}</p>
+                            </div>
+                            <div className="p-5 bg-purple-50 rounded-2xl">
+                               <p className="text-[9px] font-black text-purple-400 uppercase mb-1">CRM</p>
+                               <p className="text-xs font-bold text-purple-700">{currentUser && 'crm' in currentUser ? (currentUser as any).crm : ''}</p>
+                            </div>
+                         </>
+                       )}
                     </div>
-                  </div>
-                  
-                  <div className="mt-8 text-center">
-                    <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{currentUser?.name}</h2>
-                    <div className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1.5 flex items-center justify-center gap-2">
-                        <div className="w-1 h-1 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-                        Paciente Verificado
-                    </div>
-                  </div>
+                 </div>
+              </motion.div>
+            )}
 
-                  <div className="w-full mt-12 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Canal de E-mail</p>
-                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? 'admin@medsync.com' : (currentUser as Patient).email}</p>
-                    </div>
-                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 mt-0">Telefone Contato</p>
-                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? '(11) 99999-9999' : (currentUser as Patient).phone}</p>
-                    </div>
-                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">CPF / Documento</p>
-                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? '000.000.000-00' : (currentUser as Patient).cpf}</p>
-                    </div>
-                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors md:col-span-2">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Endereço Residencial</p>
-                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? 'Clínica MedSync Central' : (currentUser as Patient).address || 'Não informado'}</p>
-                    </div>
+            {/* PROFESSIONAL DASHBOARD */}
+            {userRole === 'professional' && activeTab === 'prof-dashboard' && (
+              <motion.div key="prof-dash" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Consultas Hoje</p>
+                    <p className="text-3xl font-bold mt-2">4</p>
                   </div>
-                  
-                  <div className="w-full mt-8 flex flex-col sm:flex-row gap-4">
-                    <button className="flex-1 bg-slate-900 text-white py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all transform hover:-translate-y-0.5">
-                      Configurações de Conta
-                    </button>
-                    <button 
-                      onClick={handleLogout}
-                      className="flex-1 bg-white text-slate-900 py-4 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm hover:bg-slate-50 transition-all transform hover:-translate-y-0.5"
-                    >
-                      Sair da Sessão
-                    </button>
+                  <div className="bg-purple-600 p-6 rounded-2xl text-white">
+                    <p className="text-[9px] font-black opacity-70 uppercase tracking-widest text-white">Próxima Consulta</p>
+                    <p className="text-xl font-bold mt-2">Maria Oliveira</p>
+                    <p className="text-[10px] font-medium opacity-80">Em 15 minutos</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                  <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="font-bold text-xs uppercase tracking-widest text-slate-500">Agenda do Dia</h3>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {appointments.filter(a => a.doctorId === currentUser?.id).map(a => {
+                      const patient = users.find(u => u.id === a.patientId);
+                      return (
+                        <div key={a.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-6">
+                            <Clock className="w-5 h-5 text-purple-600" />
+                            <div>
+                              <p className="font-bold text-slate-800 text-sm">{patient?.name}</p>
+                              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">{a.notes}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-bold text-slate-50">{format(new Date(a.dateTime), 'HH:mm')}</span>
+                            <button className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Atender</button>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               </motion.div>
             )}
 
+            {activeTab === 'prof-patients' && (
+               <motion.div key="prof-patients" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                 {users.filter(u => u.role === 'patient').map(u => (
+                   <div key={u.id} className="bg-white p-6 rounded-2xl border border-slate-200">
+                      <div className="flex items-center gap-4 mb-4">
+                         <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><User className="w-5 h-5" /></div>
+                         <h4 className="font-bold text-slate-800">{u.name}</h4>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">{u.email}</p>
+                      <button className="w-full py-2 border border-slate-100 rounded-xl text-[9px] font-black uppercase tracking-widest text-blue-600">Ver Prontuário</button>
+                   </div>
+                 ))}
+               </motion.div>
+            )}
+
+            {activeTab === 'admin-users' && (
+               <motion.div key="admin-users" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-sm">Base de Usuários</h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Gerencie pacientes e profissionais</p>
+                    </div>
+                    <button 
+                      onClick={() => setIsAdminProModalOpen(true)}
+                      className="bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-purple-700 transition-all shadow-md shadow-purple-50 flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Novo Profissional
+                    </button>
+                 </div>
+                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                   <div className="divide-y divide-slate-100">
+                    {users.map(u => (
+                      <div key={u.id} className="p-6 flex items-center justify-between">
+                         <div className="flex items-center gap-4">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.role === 'professional' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                              {u.role === 'professional' ? <Stethoscope className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                            </div>
+                            <p className="font-bold text-slate-800">{u.name}</p>
+                         </div>
+                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{u.role}</span>
+                      </div>
+                    ))}
+                    </div>
+                  </div>
+               </motion.div>
+            )}
             {activeTab === 'admin-dashboard' && (
               <motion.div
                 key="admin-dashboard"
@@ -605,44 +704,48 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-4 flex items-center justify-between z-20 shadow-[0_-10px_20px_-15px_rgba(0,0,0,0.1)]">
-        {userRole === 'patient' ? (
+        {userRole === 'patient' && (
           [
             { id: 'appointments', icon: Calendar },
             { id: 'history', icon: History },
-            { id: 'notifications', icon: Bell },
             { id: 'profile', icon: User },
           ].map(({ id, icon: Icon }) => (
             <button 
               key={id}
-              onClick={() => setActiveTab(id as any)} 
-              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300 hover:text-slate-500'}`}
+              onClick={() => setActiveTab(id)} 
+              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300'}`}
             >
               <Icon className="w-6 h-6" />
-              {activeTab === id && (
-                  <motion.div 
-                      layoutId="mobileActive" 
-                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full"
-                  />
-              )}
             </button>
           ))
-        ) : (
+        )}
+        {userRole === 'professional' && (
           [
-            { id: 'admin-dashboard', icon: ShieldCheck },
-            { id: 'admin-patients', icon: Users },
+            { id: 'prof-dashboard', icon: ShieldCheck },
+            { id: 'prof-patients', icon: Users },
+            { id: 'profile', icon: User },
           ].map(({ id, icon: Icon }) => (
             <button 
               key={id}
-              onClick={() => setActiveTab(id as any)} 
-              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300 hover:text-slate-500'}`}
+              onClick={() => setActiveTab(id)} 
+              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300'}`}
             >
               <Icon className="w-6 h-6" />
-              {activeTab === id && (
-                  <motion.div 
-                      layoutId="mobileActive" 
-                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full"
-                  />
-              )}
+            </button>
+          ))
+        )}
+        {userRole === 'admin' && (
+          [
+            { id: 'admin-dashboard', icon: ShieldCheck },
+            { id: 'admin-users', icon: Users },
+            { id: 'profile', icon: User },
+          ].map(({ id, icon: Icon }) => (
+            <button 
+              key={id}
+              onClick={() => setActiveTab(id)} 
+              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300'}`}
+            >
+              <Icon className="w-6 h-6" />
             </button>
           ))
         )}
