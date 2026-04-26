@@ -4,13 +4,14 @@
  */
 
 import { useState } from 'react';
-import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // Types
 import { Appointment, Patient, AppointmentStatus } from './types';
+import Login from './components/Login';
 
 // Mock Data
 const MOCK_PATIENT: Patient = {
@@ -45,8 +46,11 @@ const MOCK_APPOINTMENTS: Appointment[] = [
 
 import AppointmentModal from './components/AppointmentModal';
 
+type UserRole = 'patient' | 'admin' | null;
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'appointments' | 'history' | 'notifications' | 'profile'>('appointments');
+  const [userRole, setUserRole] = useState<UserRole>(null);
+  const [activeTab, setActiveTab] = useState<'appointments' | 'history' | 'notifications' | 'profile' | 'admin-dashboard' | 'admin-patients'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>(MOCK_APPOINTMENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -60,6 +64,15 @@ export default function App() {
       notes: data.notes,
     };
     setAppointments([newAppointment, ...appointments]);
+  };
+
+  const handleLogin = (role: 'patient' | 'admin') => {
+    setUserRole(role);
+    setActiveTab(role === 'admin' ? 'admin-dashboard' : 'appointments');
+  };
+
+  const handleLogout = () => {
+    setUserRole(null);
   };
 
   const statusMap: Record<AppointmentStatus, string> = {
@@ -84,6 +97,10 @@ export default function App() {
     </button>
   );
 
+  if (!userRole) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
       {/* Sidebar - Desktop */}
@@ -98,22 +115,38 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-1">
-          <NavItem id="appointments" icon={Calendar} label="Agenda" />
-          <NavItem id="history" icon={History} label="Histórico" />
-          <NavItem id="notifications" icon={Bell} label="Notificações" />
-          <NavItem id="profile" icon={User} label="Meu Perfil" />
+          {userRole === 'patient' ? (
+            <>
+              <NavItem id="appointments" icon={Calendar} label="Agenda" />
+              <NavItem id="history" icon={History} label="Histórico" />
+              <NavItem id="notifications" icon={Bell} label="Notificações" />
+              <NavItem id="profile" icon={User} label="Meu Perfil" />
+            </>
+          ) : (
+            <>
+              <NavItem id="admin-dashboard" icon={ShieldCheck} label="Painel Admin" />
+              <NavItem id="admin-patients" icon={Users} label="Gestão de Pacientes" />
+            </>
+          )}
         </nav>
 
         <div className="p-6 border-t border-slate-100">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3 group cursor-pointer hover:bg-white transition-colors">
-            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200 overflow-hidden shadow-sm">
-              <User className="w-6 h-6 text-blue-600" />
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3 group cursor-pointer hover:bg-white transition-colors mb-4">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center border overflow-hidden shadow-sm ${userRole === 'admin' ? 'bg-amber-100 border-amber-200' : 'bg-blue-100 border-blue-200'}`}>
+              {userRole === 'admin' ? <ShieldCheck className="w-6 h-6 text-amber-600" /> : <User className="w-6 h-6 text-blue-600" />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold truncate">{MOCK_PATIENT.name}</p>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Paciente</p>
+              <p className="text-sm font-bold truncate">{userRole === 'admin' ? 'Claudio Admin' : MOCK_PATIENT.name}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{userRole === 'admin' ? 'Administrador' : 'Paciente'}</p>
             </div>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 p-3 rounded-xl font-medium text-red-600 hover:bg-red-50 transition-all text-sm"
+          >
+            <LogOut className="w-5 h-5 text-red-400" />
+            Sair do Sistema
+          </button>
         </div>
       </aside>
 
@@ -127,8 +160,12 @@ export default function App() {
               {activeTab === 'history' && 'Histórico Médico'}
               {activeTab === 'notifications' && 'Centro de Mensagens'}
               {activeTab === 'profile' && 'Perfil do Paciente'}
+              {activeTab === 'admin-dashboard' && 'Visão Geral da Clínica'}
+              {activeTab === 'admin-patients' && 'Base de Pacientes'}
             </h1>
-            <p className="text-xs text-slate-500 font-medium tracking-tight">Bem-vinda de volta, {MOCK_PATIENT.name.split(' ')[0]}</p>
+            <p className="text-xs text-slate-500 font-medium tracking-tight">
+              {userRole === 'admin' ? 'Área Restrita Administrativa' : `Bem-vinda de volta, ${MOCK_PATIENT.name.split(' ')[0]}`}
+            </p>
           </div>
           
           <div className="flex items-center gap-4">
@@ -136,13 +173,15 @@ export default function App() {
               <Bell className="w-6 h-6" />
               <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-white font-bold">2</span>
             </div>
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Novo Agendamento
-            </button>
+            {userRole === 'patient' && (
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Novo Agendamento
+              </button>
+            )}
           </div>
         </header>
 
@@ -352,6 +391,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="max-w-2xl mx-auto space-y-6"
               >
+                {/* ... (existing profile content) */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 flex flex-col items-center">
                   <div className="relative group">
                     <div className="w-28 h-28 rounded-[2rem] bg-slate-50 flex items-center justify-center border-2 border-slate-100 group-hover:bg-white transition-all overflow-hidden cursor-pointer shadow-inner">
@@ -393,11 +433,115 @@ export default function App() {
                     <button className="flex-1 bg-slate-900 text-white py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all transform hover:-translate-y-0.5">
                       Configurações de Conta
                     </button>
-                    <button className="flex-1 bg-white text-slate-900 py-4 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm hover:bg-slate-50 transition-all transform hover:-translate-y-0.5">
+                    <button 
+                      onClick={handleLogout}
+                      className="flex-1 bg-white text-slate-900 py-4 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm hover:bg-slate-50 transition-all transform hover:-translate-y-0.5"
+                    >
                       Sair da Sessão
                     </button>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'admin-dashboard' && (
+              <motion.div
+                key="admin-dashboard"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Total de Consultas</p>
+                    <p className="text-3xl font-bold text-slate-800 mt-2">{appointments.length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Agendadas Hoje</p>
+                    <p className="text-3xl font-bold text-blue-600 mt-2">12</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Novos Pacientes</p>
+                    <p className="text-3xl font-bold text-green-600 mt-2">+5</p>
+                  </div>
+                  <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 shadow-sm">
+                    <p className="text-amber-500 text-[10px] font-black uppercase tracking-[0.2em]">Faturamento</p>
+                    <p className="text-2xl font-bold text-amber-900 mt-2">R$ 15.420</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 className="font-bold text-slate-800 text-xs uppercase tracking-[0.15em]">Todas as Atividades</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Paciente</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Especialista</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data/Hora</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {appointments.map(a => (
+                          <tr key={a.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-slate-700 text-sm">{MOCK_PATIENT.name}</td>
+                            <td className="px-6 py-4 text-slate-500 text-sm">Dr. Cláudio Santos</td>
+                            <td className="px-6 py-4 text-slate-500 text-sm font-medium">{format(new Date(a.dateTime), "dd/MM/yy HH:mm", { locale: ptBR })}</td>
+                            <td className="px-6 py-4">
+                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                a.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                a.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
+                              }`}>
+                                {statusMap[a.status]}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'admin-patients' && (
+              <motion.div
+                key="admin-patients"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              >
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                        <User className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 tracking-tight">Paciente Exemplo {i}</h4>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ID: #4321-{i}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-[11px] font-bold">
+                        <span className="text-slate-400 uppercase tracking-widest">Última Visita</span>
+                        <span className="text-slate-700">12/04/2026</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px] font-bold">
+                        <span className="text-slate-400 uppercase tracking-widest">Pendências</span>
+                        <span className="text-red-500">Exames Atrasados</span>
+                      </div>
+                    </div>
+                    <button className="w-full mt-6 py-3 border border-slate-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 transition-colors">
+                      Ver Prontuário →
+                    </button>
+                  </div>
+                ))}
               </motion.div>
             )}
           </AnimatePresence>
@@ -406,26 +550,47 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-4 flex items-center justify-between z-20 shadow-[0_-10px_20px_-15px_rgba(0,0,0,0.1)]">
-        {[
-          { id: 'appointments', icon: Calendar },
-          { id: 'history', icon: History },
-          { id: 'notifications', icon: Bell },
-          { id: 'profile', icon: User },
-        ].map(({ id, icon: Icon }) => (
-          <button 
-            key={id}
-            onClick={() => setActiveTab(id as any)} 
-            className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300 hover:text-slate-500'}`}
-          >
-            <Icon className="w-6 h-6" />
-            {activeTab === id && (
-                <motion.div 
-                    layoutId="mobileActive" 
-                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full"
-                />
-            )}
-          </button>
-        ))}
+        {userRole === 'patient' ? (
+          [
+            { id: 'appointments', icon: Calendar },
+            { id: 'history', icon: History },
+            { id: 'notifications', icon: Bell },
+            { id: 'profile', icon: User },
+          ].map(({ id, icon: Icon }) => (
+            <button 
+              key={id}
+              onClick={() => setActiveTab(id as any)} 
+              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300 hover:text-slate-500'}`}
+            >
+              <Icon className="w-6 h-6" />
+              {activeTab === id && (
+                  <motion.div 
+                      layoutId="mobileActive" 
+                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full"
+                  />
+              )}
+            </button>
+          ))
+        ) : (
+          [
+            { id: 'admin-dashboard', icon: ShieldCheck },
+            { id: 'admin-patients', icon: Users },
+          ].map(({ id, icon: Icon }) => (
+            <button 
+              key={id}
+              onClick={() => setActiveTab(id as any)} 
+              className={`p-2 transition-all relative ${activeTab === id ? 'text-blue-600 scale-110' : 'text-slate-300 hover:text-slate-500'}`}
+            >
+              <Icon className="w-6 h-6" />
+              {activeTab === id && (
+                  <motion.div 
+                      layoutId="mobileActive" 
+                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full"
+                  />
+              )}
+            </button>
+          ))
+        )}
       </footer>
     </div>
   );
