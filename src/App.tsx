@@ -14,16 +14,28 @@ import { Appointment, Patient, AppointmentStatus } from './types';
 import Login from './components/Login';
 
 // Mock Data
-const MOCK_PATIENT: Patient = {
-  id: 'p1',
-  name: 'Maria Oliveira',
-  email: 'maria.oliveira@email.com',
-  phone: '(11) 98765-4321',
-  cpf: '123.456.789-00',
-  birthDate: '1985-05-20',
-};
+const INITIAL_USERS: Patient[] = [
+  {
+    id: 'p1',
+    name: 'Maria Oliveira',
+    email: 'maria.oliveira@email.com',
+    phone: '(11) 98765-4321',
+    cpf: '123.456.789-00',
+    birthDate: '1985-05-20',
+    address: 'Rua das Flores, 123 - São Paulo, SP',
+  },
+  {
+    id: 'p2',
+    name: 'João Silva',
+    email: 'joao.silva@email.com',
+    phone: '(11) 91234-5678',
+    cpf: '987.654.321-00',
+    birthDate: '1990-10-15',
+    address: 'Av. Paulista, 1000 - São Paulo, SP',
+  }
+];
 
-const MOCK_APPOINTMENTS: Appointment[] = [
+const INITIAL_APPOINTMENTS: Appointment[] = [
   {
     id: 'a1',
     patientId: 'p1',
@@ -42,22 +54,36 @@ const MOCK_APPOINTMENTS: Appointment[] = [
     diagnosis: 'Paciente saudável, leve deficiência de Vitamina D.',
     prescription: 'Vitamina D 2000 UI - 1 gota ao dia.',
   },
+  {
+    id: 'a3',
+    patientId: 'p2',
+    doctorId: 'd1',
+    dateTime: '2026-06-05T10:00:00Z',
+    status: 'scheduled',
+    notes: 'Primeira consulta de rotina.',
+  },
 ];
 
 import AppointmentModal from './components/AppointmentModal';
+import Register from './components/Register';
 
 type UserRole = 'patient' | 'admin' | null;
+type AuthView = 'login' | 'register';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<Patient | { id: string, name: string, role: 'admin' } | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
+  const [authView, setAuthView] = useState<AuthView>('login');
   const [activeTab, setActiveTab] = useState<'appointments' | 'history' | 'notifications' | 'profile' | 'admin-dashboard' | 'admin-patients'>('appointments');
-  const [appointments, setAppointments] = useState<Appointment[]>(MOCK_APPOINTMENTS);
+  const [users, setUsers] = useState<Patient[]>(INITIAL_USERS);
+  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleSaveAppointment = (data: any) => {
+    if (!currentUser) return;
     const newAppointment: Appointment = {
       id: Math.random().toString(36).substr(2, 9),
-      patientId: MOCK_PATIENT.id,
+      patientId: currentUser.id,
       doctorId: data.doctorId,
       dateTime: data.dateTime,
       status: 'scheduled',
@@ -66,13 +92,26 @@ export default function App() {
     setAppointments([newAppointment, ...appointments]);
   };
 
-  const handleLogin = (role: 'patient' | 'admin') => {
-    setUserRole(role);
-    setActiveTab(role === 'admin' ? 'admin-dashboard' : 'appointments');
+  const handleLogin = (role: 'patient' | 'admin', email?: string) => {
+    if (role === 'admin') {
+      setUserRole('admin');
+      setCurrentUser({ id: 'admin1', name: 'Claudio Admin', role: 'admin' });
+      setActiveTab('admin-dashboard');
+    } else {
+      const user = users.find(u => u.email === email);
+      if (user) {
+        setUserRole('patient');
+        setCurrentUser(user);
+        setActiveTab('appointments');
+      } else {
+        alert('Usuário não encontrado. Verifique seu e-mail ou cadastre-se.');
+      }
+    }
   };
 
   const handleLogout = () => {
     setUserRole(null);
+    setCurrentUser(null);
   };
 
   const statusMap: Record<AppointmentStatus, string> = {
@@ -80,6 +119,16 @@ export default function App() {
     completed: 'Concluída',
     canceled: 'Cancelada',
     missed: 'Faltou',
+  };
+
+  const handleRegister = (data: any) => {
+    const newUser: Patient = {
+      id: `p${users.length + 1}`,
+      ...data
+    };
+    setUsers([...users, newUser]);
+    setAuthView('login');
+    alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
   };
 
   const NavItem = ({ id, icon: Icon, label }: { id: typeof activeTab, icon: any, label: string }) => (
@@ -98,7 +147,10 @@ export default function App() {
   );
 
   if (!userRole) {
-    return <Login onLogin={handleLogin} />;
+    if (authView === 'register') {
+      return <Register onBackToLogin={() => setAuthView('login')} onRegister={handleRegister} />;
+    }
+    return <Login onLogin={handleLogin} onShowRegister={() => setAuthView('register')} />;
   }
 
   return (
@@ -136,7 +188,7 @@ export default function App() {
               {userRole === 'admin' ? <ShieldCheck className="w-6 h-6 text-amber-600" /> : <User className="w-6 h-6 text-blue-600" />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold truncate">{userRole === 'admin' ? 'Claudio Admin' : MOCK_PATIENT.name}</p>
+              <p className="text-sm font-bold truncate">{currentUser?.name}</p>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{userRole === 'admin' ? 'Administrador' : 'Paciente'}</p>
             </div>
           </div>
@@ -164,7 +216,7 @@ export default function App() {
               {activeTab === 'admin-patients' && 'Base de Pacientes'}
             </h1>
             <p className="text-xs text-slate-500 font-medium tracking-tight">
-              {userRole === 'admin' ? 'Área Restrita Administrativa' : `Bem-vinda de volta, ${MOCK_PATIENT.name.split(' ')[0]}`}
+              {userRole === 'admin' ? 'Área Restrita Administrativa' : `Bem-vinda de volta, ${currentUser?.name.split(' ')[0]}`}
             </p>
           </div>
           
@@ -205,7 +257,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
                     <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Total Agendado</p>
-                    <p className="text-3xl font-bold text-slate-800 mt-2">{appointments.filter(a => a.status === 'scheduled').length}</p>
+                    <p className="text-3xl font-bold text-slate-800 mt-2">{appointments.filter(a => a.patientId === currentUser?.id && a.status === 'scheduled').length}</p>
                     <p className="text-blue-600 text-[10px] mt-2 font-bold uppercase">Consultas pendentes</p>
                   </div>
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
@@ -228,7 +280,7 @@ export default function App() {
                     <span className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer uppercase tracking-widest">Ver calendário →</span>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.status === 'scheduled').map((appointment) => (
+                    {appointments.filter(a => a.patientId === currentUser?.id && a.status === 'scheduled').map((appointment) => (
                       <div key={appointment.id} className="p-6 flex flex-col md:flex-row items-center justify-between gap-6 hover:bg-slate-50 transition-colors">
                         <div className="flex items-center gap-6">
                           <div className="w-14 h-14 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center justify-center shadow-inner">
@@ -256,7 +308,7 @@ export default function App() {
                         </div>
                       </div>
                     ))}
-                    {appointments.filter(a => a.status === 'scheduled').length === 0 && (
+                    {appointments.filter(a => a.patientId === currentUser?.id && a.status === 'scheduled').length === 0 && (
                       <div className="p-20 text-center text-slate-400">
                         <Calendar className="w-12 h-12 mx-auto mb-4 opacity-10" />
                         <p className="font-bold text-xs uppercase tracking-widest">Nenhuma consulta pendente.</p>
@@ -282,10 +334,10 @@ export default function App() {
                         <User className="w-6 h-6 text-blue-600" />
                       </div>
                       <div>
-                        <h2 className="font-bold text-xl text-slate-900 tracking-tight">{MOCK_PATIENT.name}</h2>
+                        <h2 className="font-bold text-xl text-slate-900 tracking-tight">{currentUser?.name}</h2>
                         <div className="flex items-center gap-4 mt-1">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded">CPF: {MOCK_PATIENT.cpf}</p>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Nascimento: {format(new Date(MOCK_PATIENT.birthDate), 'dd/MM/yyyy')}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded">CPF: {(currentUser as Patient).cpf}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Nascimento: {currentUser && 'birthDate' in currentUser ? format(new Date(currentUser.birthDate), 'dd/MM/yyyy') : ''}</p>
                         </div>
                       </div>
                     </div>
@@ -295,7 +347,7 @@ export default function App() {
                   </div>
                   
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.status !== 'scheduled').map((appointment) => (
+                    {appointments.filter(a => a.patientId === currentUser?.id && a.status !== 'scheduled').map((appointment) => (
                       <div key={appointment.id} className="p-8 hover:bg-slate-50 transition-colors">
                         <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
                           <div className="flex items-center gap-4">
@@ -339,7 +391,7 @@ export default function App() {
                         )}
                       </div>
                     ))}
-                    {appointments.filter(a => a.status !== 'scheduled').length === 0 && (
+                    {appointments.filter(a => a.patientId === currentUser?.id && a.status !== 'scheduled').length === 0 && (
                       <div className="p-20 text-center text-slate-400 italic text-sm">Nenhum registro histórico encontrado.</div>
                     )}
                   </div>
@@ -403,7 +455,7 @@ export default function App() {
                   </div>
                   
                   <div className="mt-8 text-center">
-                    <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{MOCK_PATIENT.name}</h2>
+                    <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{currentUser?.name}</h2>
                     <div className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1.5 flex items-center justify-center gap-2">
                         <div className="w-1 h-1 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
                         Paciente Verificado
@@ -413,19 +465,19 @@ export default function App() {
                   <div className="w-full mt-12 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Canal de E-mail</p>
-                      <p className="text-xs font-bold text-slate-700">{MOCK_PATIENT.email}</p>
+                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? 'admin@medsync.com' : (currentUser as Patient).email}</p>
                     </div>
                     <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 mt-0">Telefone Contato</p>
-                      <p className="text-xs font-bold text-slate-700">{MOCK_PATIENT.phone}</p>
+                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? '(11) 99999-9999' : (currentUser as Patient).phone}</p>
                     </div>
                     <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">CPF / Documento</p>
-                      <p className="text-xs font-bold text-slate-700">{MOCK_PATIENT.cpf}</p>
+                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? '000.000.000-00' : (currentUser as Patient).cpf}</p>
                     </div>
-                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Seguro Saúde</p>
-                      <p className="text-xs font-bold text-slate-700 uppercase tracking-tight">Premium Health Plus</p>
+                    <div className="p-5 bg-slate-50/50 rounded-xl border border-slate-100 group hover:bg-white transition-colors md:col-span-2">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Endereço Residencial</p>
+                      <p className="text-xs font-bold text-slate-700">{currentUser?.role === 'admin' ? 'Clínica MedSync Central' : (currentUser as Patient).address || 'Não informado'}</p>
                     </div>
                   </div>
                   
@@ -486,21 +538,24 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {appointments.map(a => (
-                          <tr key={a.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-4 font-bold text-slate-700 text-sm">{MOCK_PATIENT.name}</td>
-                            <td className="px-6 py-4 text-slate-500 text-sm">Dr. Cláudio Santos</td>
-                            <td className="px-6 py-4 text-slate-500 text-sm font-medium">{format(new Date(a.dateTime), "dd/MM/yy HH:mm", { locale: ptBR })}</td>
-                            <td className="px-6 py-4">
-                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                                a.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
-                                a.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
-                              }`}>
-                                {statusMap[a.status]}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {appointments.map(a => {
+                          const patient = users.find(u => u.id === a.patientId);
+                          return (
+                            <tr key={a.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-6 py-4 font-bold text-slate-700 text-sm">{patient?.name || 'Sistema'}</td>
+                              <td className="px-6 py-4 text-slate-500 text-sm">Dr. Cláudio Santos</td>
+                              <td className="px-6 py-4 text-slate-500 text-sm font-medium">{format(new Date(a.dateTime), "dd/MM/yy HH:mm", { locale: ptBR })}</td>
+                              <td className="px-6 py-4">
+                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                  a.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                  a.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
+                                }`}>
+                                  {statusMap[a.status]}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -516,25 +571,25 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
-                {[1, 2, 3, 4, 5].map(i => (
-                  <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                {users.map(user => (
+                  <div key={user.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-center gap-4 mb-6">
                       <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                         <User className="w-6 h-6" />
                       </div>
                       <div>
-                        <h4 className="font-bold text-slate-900 tracking-tight">Paciente Exemplo {i}</h4>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ID: #4321-{i}</p>
+                        <h4 className="font-bold text-slate-900 tracking-tight">{user.name}</h4>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ID: #{user.id}</p>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between items-center text-[11px] font-bold">
-                        <span className="text-slate-400 uppercase tracking-widest">Última Visita</span>
-                        <span className="text-slate-700">12/04/2026</span>
+                        <span className="text-slate-400 uppercase tracking-widest">E-mail</span>
+                        <span className="text-slate-700 truncate max-w-[150px]">{user.email}</span>
                       </div>
                       <div className="flex justify-between items-center text-[11px] font-bold">
-                        <span className="text-slate-400 uppercase tracking-widest">Pendências</span>
-                        <span className="text-red-500">Exames Atrasados</span>
+                        <span className="text-slate-400 uppercase tracking-widest">Consultas</span>
+                        <span className="text-blue-600">{appointments.filter(a => a.patientId === user.id).length}</span>
                       </div>
                     </div>
                     <button className="w-full mt-6 py-3 border border-slate-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 transition-colors">

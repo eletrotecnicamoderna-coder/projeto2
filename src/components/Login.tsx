@@ -8,18 +8,18 @@ import { motion } from 'motion/react';
 import { Calendar, User, ShieldCheck, Mail, Lock, ArrowRight } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (role: 'patient' | 'admin') => void;
+  onLogin: (role: 'patient' | 'admin', email: string) => void;
+  onShowRegister: () => void;
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, onShowRegister }: LoginProps) {
   const [role, setRole] = useState<'patient' | 'admin'>('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    // Simulate login
-    onLogin(role);
+    onLogin(role, email);
   };
 
   return (
@@ -108,7 +108,7 @@ export default function Login({ onLogin }: LoginProps) {
           </form>
 
           <p className="mt-8 text-center text-xs text-slate-400 font-medium">
-            Não tem uma conta? <button className="text-blue-600 font-bold hover:underline">Cadastre-se</button>
+            Não tem uma conta? <button onClick={onShowRegister} className="text-blue-600 font-bold hover:underline">Cadastre-se</button>
           </p>
         </div>
       </motion.div>

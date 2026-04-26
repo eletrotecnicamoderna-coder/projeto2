@@ -10,6 +10,7 @@ export interface Patient {
   phone: string;
   cpf: string;
   birthDate: string;
+  address?: string;
 }
 
 export interface Doctor {
