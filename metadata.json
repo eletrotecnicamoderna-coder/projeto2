@@ -1,0 +1,6 @@
+{
+  "name": "MedSync",
+  "description": "Plataforma de agendamento de consultas médicas com histórico de pacientes e notificações em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
