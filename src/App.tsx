@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText } from 'lucide-react';
+import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -161,6 +161,15 @@ export default function App() {
   const handleApprovePro = (id: string) => {
     setUsers(users.map(u => u.id === id ? { ...u, status: 'active' } : u));
     alert('Profissional aprovado com sucesso!');
+  };
+
+  const handleDeleteUser = (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) {
+      setUsers(users.filter(u => u.id !== id));
+      // Also remove their appointments
+      setAppointments(appointments.filter(a => a.patientId !== id && a.doctorId !== id));
+      alert('Usuário removido com sucesso!');
+    }
   };
 
   const NavItem = ({ id, icon: Icon, label }: { id: string, icon: any, label: string }) => (
@@ -617,14 +626,23 @@ export default function App() {
                                 {u.status === 'active' ? 'Ativo' : 'Pendente'}
                               </span>
                             </div>
-                            {u.role === 'professional' && u.status === 'pending' && (
+                            <div className="flex items-center gap-2">
+                              {u.role === 'professional' && u.status === 'pending' && (
+                                <button 
+                                  onClick={() => handleApprovePro(u.id)}
+                                  className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all shadow-md shadow-green-100 hover:-translate-y-0.5 active:translate-y-0"
+                                >
+                                  Aprovar
+                                </button>
+                              )}
                               <button 
-                                onClick={() => handleApprovePro(u.id)}
-                                className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all shadow-md shadow-green-100 hover:-translate-y-0.5 active:translate-y-0"
+                                onClick={() => handleDeleteUser(u.id)}
+                                className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                title="Excluir Usuário"
                               >
-                                Aprovar
+                                <Trash2 className="w-5 h-5" />
                               </button>
-                            )}
+                            </div>
                          </div>
                       </div>
                     ))}
