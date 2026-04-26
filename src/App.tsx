@@ -13,6 +13,15 @@ import { ptBR } from 'date-fns/locale';
 import { Appointment, Patient, AppointmentStatus, UserRole, UserProfile, Doctor } from './types';
 import Login from './components/Login';
 
+interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  date: string;
+  isNew: boolean;
+}
+
 // Mock Data
 const INITIAL_USERS: (Patient | Doctor)[] = [
   {
@@ -93,6 +102,24 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('appointments');
   const [users, setUsers] = useState<(Patient | Doctor)[]>(INITIAL_USERS);
   const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
+  const [notifications, setNotifications] = useState<AppNotification[]>([
+    {
+      id: 'n1',
+      userId: 'p1',
+      title: 'Exame Disponível',
+      message: 'O resultado do seu exame de sangue já está disponível no sistema para visualização imediata.',
+      date: new Date(Date.now() - 3600000).toISOString(),
+      isNew: true
+    },
+    {
+      id: 'n2',
+      userId: 'p1',
+      title: 'Agendamento Confirmado',
+      message: 'Sua consulta com Dr. Roberto Lima foi confirmada pelo sistema da clínica.',
+      date: new Date(Date.now() - 172800000).toISOString(),
+      isNew: false
+    }
+  ]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAdminProModalOpen, setIsAdminProModalOpen] = useState(false);
 
@@ -103,10 +130,13 @@ export default function App() {
       patientId: userRole === 'patient' ? currentUser.id : data.patientId || 'p1',
       doctorId: userRole === 'professional' ? currentUser.id : data.doctorId,
       dateTime: data.dateTime,
-      status: 'scheduled',
+      status: userRole === 'patient' ? 'pending' : 'scheduled',
       notes: data.notes,
     };
     setAppointments([newAppointment, ...appointments]);
+    if (userRole === 'patient') {
+      alert('Sua solicitação de agendamento foi enviada e aguarda confirmação do administrador.');
+    }
   };
 
   const handleLogin = (role: UserRole, email?: string) => {
@@ -136,6 +166,7 @@ export default function App() {
   };
 
   const statusMap: Record<AppointmentStatus, string> = {
+    pending: 'Aguardando Confirmação',
     scheduled: 'Agendada',
     completed: 'Concluída',
     canceled: 'Cancelada',
@@ -161,6 +192,38 @@ export default function App() {
   const handleApprovePro = (id: string) => {
     setUsers(users.map(u => u.id === id ? { ...u, status: 'active' } : u));
     alert('Profissional aprovado com sucesso!');
+  };
+
+  const handleConfirmAppointment = (id: string) => {
+    const appointment = appointments.find(a => a.id === id);
+    if (!appointment) return;
+
+    const patient = users.find(u => u.id === appointment.patientId) as Patient;
+    const doctor = users.find(u => u.id === appointment.doctorId) as Doctor;
+
+    setAppointments(appointments.map(a => a.id === id ? { ...a, status: 'scheduled' } : a));
+
+    const appointmentDate = format(new Date(appointment.dateTime), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+    const message = `Olá ${patient.name}, sua consulta com ${doctor.name} para o dia ${appointmentDate} foi CONFIRMADA pela MedSync.`;
+
+    // Simulated communications
+    console.log('WhatsApp confirmation sent (wa.me link):', `https://wa.me/${patient.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`);
+    console.log(`Email sent to ${patient.email}: Confirmation for appointment on ${appointmentDate}`);
+
+    // Update in-app notifications
+    setNotifications([
+      {
+        id: Math.random().toString(36).substr(2, 9),
+        userId: patient.id,
+        title: 'Consulta Confirmada!',
+        message: `Sua consulta com ${doctor.name} no dia ${appointmentDate} foi confirmada.`,
+        date: new Date().toISOString(),
+        isNew: true
+      },
+      ...notifications
+    ]);
+
+    alert('Agendamento confirmado! Notificações enviadas via Sistema, E-mail e WhatsApp.');
   };
 
   const handleDeleteUser = (id: string) => {
@@ -276,9 +339,13 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="relative p-2 text-slate-400 hover:text-slate-600 cursor-pointer hidden sm:block">
+            <div className="relative p-2 text-slate-400 hover:text-slate-600 cursor-pointer hidden sm:block" onClick={() => userRole === 'patient' && setActiveTab('notifications')}>
               <Bell className="w-6 h-6" />
-              <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-white font-bold">2</span>
+              {notifications.filter(n => n.userId === currentUser?.id && n.isNew).length > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-white font-bold">
+                  {notifications.filter(n => n.userId === currentUser?.id && n.isNew).length}
+                </span>
+              )}
             </div>
             {userRole === 'patient' && (
               <button 
@@ -341,7 +408,7 @@ export default function App() {
                     <span className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer uppercase tracking-widest">Ver calendário →</span>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.patientId === currentUser?.id && a.status === 'scheduled').map((appointment) => (
+                    {appointments.filter(a => a.patientId === currentUser?.id && (a.status === 'scheduled' || a.status === 'pending')).map((appointment) => (
                       <div key={appointment.id} className="p-6 flex flex-col md:flex-row items-center justify-between gap-6 hover:bg-slate-50 transition-colors">
                         <div className="flex items-center gap-6">
                           <div className="w-14 h-14 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center justify-center shadow-inner">
@@ -353,13 +420,17 @@ export default function App() {
                               <User className="w-5 h-5 text-slate-400" />
                             </div>
                             <div>
-                              <h4 className="font-bold text-slate-900 text-base tracking-tight">Dr. Cláudio Santos</h4>
-                              <p className="text-xs text-slate-500 font-medium tracking-tight">Cardiologia • {format(new Date(appointment.dateTime), "HH:mm 'hs'", { locale: ptBR })}</p>
+                               <h4 className="font-bold text-slate-900 text-base tracking-tight">Dr. Cláudio Santos</h4>
+                               <p className="text-xs text-slate-500 font-medium tracking-tight">Cardiologia • {format(new Date(appointment.dateTime), "HH:mm 'hs'", { locale: ptBR })}</p>
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 shadow-sm">CONFIRMADO</span>
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm ${
+                            appointment.status === 'scheduled' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                          }`}>
+                            {appointment.status === 'scheduled' ? 'CONFIRMADO' : 'AGUARDANDO'}
+                          </span>
                           <button 
                             onClick={() => setAppointments(appointments.filter(a => a.id !== appointment.id))}
                             className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
@@ -369,7 +440,7 @@ export default function App() {
                         </div>
                       </div>
                     ))}
-                    {appointments.filter(a => a.patientId === currentUser?.id && a.status === 'scheduled').length === 0 && (
+                    {appointments.filter(a => a.patientId === currentUser?.id && (a.status === 'scheduled' || a.status === 'pending')).length === 0 && (
                       <div className="p-20 text-center text-slate-400">
                         <Calendar className="w-12 h-12 mx-auto mb-4 opacity-10" />
                         <p className="font-bold text-xs uppercase tracking-widest">Nenhuma consulta pendente.</p>
@@ -468,31 +539,42 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="max-w-3xl mx-auto space-y-4"
               >
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex gap-5 relative group transition-all hover:bg-slate-50">
-                  <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 shrink-0 border border-blue-100 shadow-inner group-hover:bg-white transition-colors">
-                    <Clock className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <h4 className="font-bold text-slate-900 tracking-tight">Exame Disponível</h4>
-                      <span className="text-[9px] bg-red-100 text-red-600 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">NOVO</span>
+                {notifications.filter(n => n.userId === currentUser?.id).map((notification) => (
+                  <div key={notification.id} className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex gap-5 relative group transition-all hover:bg-slate-50 ${!notification.isNew ? 'opacity-70 grayscale hover:grayscale-0' : ''}`}>
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner transition-colors ${notification.isNew ? 'bg-blue-50 text-blue-600 border-blue-100 group-hover:bg-white' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+                      {notification.title.includes('Confirmada') ? <CheckCircle2 className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
                     </div>
-                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">O resultado do seu exame de sangue já está disponível no sistema para visualização imediata.</p>
-                    <button className="mt-3 text-blue-600 text-[10px] font-black uppercase tracking-widest hover:underline tracking-[0.1em]">Ver Resultados</button>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex gap-5 opacity-60 grayscale hover:grayscale-0 transition-all cursor-default">
-                  <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100 shadow-inner">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <h4 className="font-bold text-slate-900 tracking-tight">Agendamento Confirmado</h4>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">há 2 dias</span>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h4 className="font-bold text-slate-900 tracking-tight">{notification.title}</h4>
+                        {notification.isNew && (
+                          <span className="text-[9px] bg-red-100 text-red-600 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">NOVO</span>
+                        )}
+                        {!notification.isNew && (
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{format(new Date(notification.date), "dd/MM 'às' HH:mm", { locale: ptBR })}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-600 mt-1 leading-relaxed">{notification.message}</p>
+                      {notification.title.includes('Exame') && (
+                        <button className="mt-3 text-blue-600 text-[10px] font-black uppercase tracking-widest hover:underline tracking-[0.1em]">Ver Resultados</button>
+                      )}
                     </div>
-                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">Sua consulta com Dr. Roberto Lima foi confirmada pelo sistema da clínica.</p>
+                    {notification.isNew && (
+                      <button 
+                        onClick={() => setNotifications(notifications.map(n => n.id === notification.id ? { ...n, isNew: false } : n))}
+                        className="absolute top-4 right-4 text-[9px] font-bold text-slate-300 hover:text-blue-600 uppercase"
+                      >
+                        Marcar como lida
+                      </button>
+                    )}
                   </div>
-                </div>
+                ))}
+                {notifications.filter(n => n.userId === currentUser?.id).length === 0 && (
+                  <div className="p-20 text-center text-slate-400">
+                    <Bell className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                    <p className="font-bold text-xs uppercase tracking-widest">Nenhuma notificação encontrada.</p>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -672,10 +754,56 @@ export default function App() {
                     <p className="text-3xl font-bold text-green-600 mt-2">+5</p>
                   </div>
                   <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 shadow-sm">
-                    <p className="text-amber-500 text-[10px] font-black uppercase tracking-[0.2em]">Faturamento</p>
-                    <p className="text-2xl font-bold text-amber-900 mt-2">R$ 15.420</p>
+                    <p className="text-amber-500 text-[10px] font-black uppercase tracking-[0.2em]">Solicitações Pendentes</p>
+                    <p className="text-3xl font-bold text-amber-900 mt-2">{appointments.filter(a => a.status === 'pending').length}</p>
                   </div>
                 </div>
+
+                {appointments.filter(a => a.status === 'pending').length > 0 && (
+                   <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden animate-pulse hover:animate-none">
+                      <div className="p-5 border-b border-amber-100 flex justify-between items-center bg-amber-50/30">
+                        <h3 className="font-bold text-amber-900 text-xs uppercase tracking-[0.15em] flex items-center gap-2">
+                           <Clock className="w-4 h-4" />
+                           Solicitações de Agendamento (Aguardando Confirmação)
+                        </h3>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {appointments.filter(a => a.status === 'pending').map(a => {
+                          const patient = users.find(u => u.id === a.patientId);
+                          const doctor = users.find(u => u.id === a.doctorId);
+                          return (
+                            <div key={a.id} className="p-6 flex items-center justify-between hover:bg-amber-50/20 transition-colors">
+                              <div className="flex items-center gap-6">
+                                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                                   <Calendar className="w-5 h-5" />
+                                </div>
+                                <div>
+                                   <p className="font-bold text-slate-800 text-sm">Paciente: {patient?.name}</p>
+                                   <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1">
+                                      Médico: {doctor?.name} • {format(new Date(a.dateTime), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                   </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <button 
+                                  onClick={() => handleConfirmAppointment(a.id)}
+                                  className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all shadow-md shadow-green-100"
+                                >
+                                  Confirmar e Notificar
+                                </button>
+                                <button 
+                                  onClick={() => setAppointments(appointments.filter(ap => ap.id !== a.id))}
+                                  className="text-red-500 hover:bg-red-50 p-2.5 rounded-xl transition-all"
+                                >
+                                  <XCircle className="w-5 h-5" />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                   </div>
+                )}
 
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -689,23 +817,43 @@ export default function App() {
                           <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Especialista</th>
                           <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data/Hora</th>
                           <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {appointments.map(a => {
                           const patient = users.find(u => u.id === a.patientId);
+                          const doctor = users.find(u => u.id === a.doctorId);
                           return (
                             <tr key={a.id} className="hover:bg-slate-50 transition-colors">
                               <td className="px-6 py-4 font-bold text-slate-700 text-sm">{patient?.name || 'Sistema'}</td>
-                              <td className="px-6 py-4 text-slate-500 text-sm">Dr. Cláudio Santos</td>
+                              <td className="px-6 py-4 text-slate-500 text-sm">{doctor?.name || 'Dr. Cláudio Santos'}</td>
                               <td className="px-6 py-4 text-slate-500 text-sm font-medium">{format(new Date(a.dateTime), "dd/MM/yy HH:mm", { locale: ptBR })}</td>
                               <td className="px-6 py-4">
                                 <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
                                   a.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                  a.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-100' :
                                   a.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
                                 }`}>
                                   {statusMap[a.status]}
                                 </span>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                {a.status === 'pending' && (
+                                  <button 
+                                    onClick={() => handleConfirmAppointment(a.id)}
+                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                    title="Confirmar Agendamento"
+                                  >
+                                    <CheckCircle2 className="w-5 h-5" />
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => setAppointments(appointments.filter(ap => ap.id !== a.id))}
+                                  className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
                               </td>
                             </tr>
                           );

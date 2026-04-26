@@ -33,7 +33,7 @@ export interface Doctor extends UserProfile {
   crm: string;
 }
 
-export type AppointmentStatus = 'scheduled' | 'completed' | 'canceled' | 'missed';
+export type AppointmentStatus = 'pending' | 'scheduled' | 'completed' | 'canceled' | 'missed';
 
 export interface Appointment {
   id: string;
