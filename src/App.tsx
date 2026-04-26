@@ -279,10 +279,10 @@ export default function App() {
 
                         {appointment.diagnosis && (
                           <div className="mb-6 pl-4 border-l-4 border-blue-100">
-                            <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                            <div className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
                                 Diagnóstico Médico
-                            </p>
+                            </div>
                             <p className="text-slate-700 leading-relaxed font-medium text-sm">{appointment.diagnosis}</p>
                           </div>
                         )}
@@ -364,10 +364,10 @@ export default function App() {
                   
                   <div className="mt-8 text-center">
                     <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{MOCK_PATIENT.name}</h2>
-                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1.5 flex items-center justify-center gap-2">
+                    <div className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-1.5 flex items-center justify-center gap-2">
                         <div className="w-1 h-1 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
                         Paciente Verificado
-                    </p>
+                    </div>
                   </div>
 
                   <div className="w-full mt-12 grid grid-cols-1 md:grid-cols-2 gap-4">
