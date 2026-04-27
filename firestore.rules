@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function existingData() {
+      return resource.data;
+    }
+
+    function incomingData() {
+      return request.resource.data;
+    }
+
+    function isAdmin() {
+      // Look up admin role in the users collection or check specific admin email
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == 'eletrotecnicamoderna@gmail.com')
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Entity Validations ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role', 'phone', 'status']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 255 &&
+             data.role in ['patient', 'professional', 'admin'] &&
+             data.phone is string && data.phone.size() <= 30 &&
+             data.status in ['active', 'pending', 'rejected'];
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['id', 'patientId', 'doctorId', 'dateTime', 'status']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.patientId is string && data.patientId.size() <= 128 &&
+             data.doctorId is string && data.doctorId.size() <= 128 &&
+             data.dateTime is string && // ISO string
+             data.status in ['pending', 'scheduled', 'completed', 'canceled', 'missed'];
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'message', 'date', 'isNew']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.message is string && data.message.size() <= 1000;
+    }
+
+    // --- Rules ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incomingData()) && 
+                    incomingData().status == (incomingData().role == 'professional' ? 'pending' : 'active') &&
+                    (incomingData().role != 'admin' || incomingData().email == 'eletrotecnicamoderna@gmail.com');
+      
+      allow update: if isSignedIn() && (
+        (isOwner(userId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['name', 'phone', 'address', 'birthDate', 'specialty', 'crm']) && isValidUser(incomingData())) ||
+        (isAdmin() && incomingData().diff(existingData()).affectedKeys().hasOnly(['status']) && isValidUser(incomingData()))
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /appointments/{appointmentId} {
+      allow get: if isSignedIn() && (
+        isOwner(existingData().patientId) || 
+        isOwner(existingData().doctorId) || 
+        isAdmin()
+      );
+      
+      allow list: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid || 
+        resource.data.doctorId == request.auth.uid || 
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() && (
+        (isOwner(incomingData().patientId) && incomingData().status == 'pending' && isValidAppointment(incomingData())) ||
+        (isAdmin() && isValidAppointment(incomingData()))
+      );
+
+      allow update: if isSignedIn() && (
+        (isAdmin() && incomingData().diff(existingData()).affectedKeys().hasOnly(['status', 'dateTime', 'doctorId']) && isValidAppointment(incomingData())) ||
+        (isOwner(existingData().doctorId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['diagnosis', 'prescription', 'status']) && isValidAppointment(incomingData()) && existingData().status != 'completed') ||
+        (isOwner(existingData().patientId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['status', 'notes']) && incomingData().status == 'canceled' && isValidAppointment(incomingData()))
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && (isOwner(existingData().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isAdmin(); // Only system/admin can create notifications
+      
+      allow update: if isSignedIn() && isOwner(existingData().userId) && 
+                    incomingData().diff(existingData()).affectedKeys().hasOnly(['isNew']) && 
+                    isValidNotification(incomingData());
+      
+      allow delete: if isSignedIn() && isOwner(existingData().userId);
+    }
+  }
+}

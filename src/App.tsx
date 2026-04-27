@@ -3,11 +3,35 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  where, 
+  orderBy, 
+  setDoc,
+  getDocs,
+  getDoc,
+  Timestamp
+} from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  onAuthStateChanged,
+  signOut,
+  User as FirebaseUser
+} from 'firebase/auth';
+import { db, auth } from './lib/firebase';
+import { handleFirestoreError, OperationType } from './lib/firestoreService';
 
 // Types
 import { Appointment, Patient, AppointmentStatus, UserRole, UserProfile, Doctor } from './types';
@@ -22,73 +46,6 @@ interface AppNotification {
   isNew: boolean;
 }
 
-// Mock Data
-const INITIAL_USERS: (Patient | Doctor)[] = [
-  {
-    id: 'p1',
-    name: 'Maria Oliveira',
-    email: 'maria.oliveira@email.com',
-    role: 'patient',
-    phone: '(11) 98765-4321',
-    cpf: '123.456.789-00',
-    birthDate: '1985-05-20',
-    address: 'Rua das Flores, 123 - São Paulo, SP',
-    status: 'active',
-  },
-  {
-    id: 'p2',
-    name: 'João Silva',
-    email: 'joao.silva@email.com',
-    role: 'patient',
-    phone: '(11) 91234-5678',
-    cpf: '987.654.321-00',
-    birthDate: '1990-10-15',
-    address: 'Av. Paulista, 1000 - São Paulo, SP',
-    status: 'active',
-  },
-  {
-    id: 'd1',
-    name: 'Dr. Cláudio Santos',
-    email: 'claudio.santos@medsync.com',
-    role: 'professional',
-    phone: '(11) 99999-1111',
-    cpf: '111.111.111-11',
-    specialty: 'Cardiologia',
-    crm: 'CRM-SP 123456',
-    address: 'Av. Paulista, 500 - Consultório 10',
-    status: 'active',
-  }
-];
-
-const INITIAL_APPOINTMENTS: Appointment[] = [
-  {
-    id: 'a1',
-    patientId: 'p1',
-    doctorId: 'd1',
-    dateTime: '2026-05-10T14:30:00Z',
-    status: 'scheduled',
-    notes: 'Retorno para avaliação de exames de sangue.',
-  },
-  {
-    id: 'a2',
-    patientId: 'p1',
-    doctorId: 'd2',
-    dateTime: '2026-04-15T09:00:00Z',
-    status: 'completed',
-    notes: 'Check-up anual.',
-    diagnosis: 'Paciente saudável, leve deficiência de Vitamina D.',
-    prescription: 'Vitamina D 2000 UI - 1 gota ao dia.',
-  },
-  {
-    id: 'a3',
-    patientId: 'p2',
-    doctorId: 'd1',
-    dateTime: '2026-06-05T10:00:00Z',
-    status: 'scheduled',
-    notes: 'Primeira consulta de rotina.',
-  },
-];
-
 import AppointmentModal from './components/AppointmentModal';
 import Register from './components/Register';
 import AddProfessionalModal from './components/AddProfessionalModal';
@@ -96,73 +53,182 @@ import AddProfessionalModal from './components/AddProfessionalModal';
 type AuthView = 'login' | 'register';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<Patient | Doctor | UserProfile | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<string>('appointments');
-  const [users, setUsers] = useState<(Patient | Doctor)[]>(INITIAL_USERS);
-  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
-  const [notifications, setNotifications] = useState<AppNotification[]>([
-    {
-      id: 'n1',
-      userId: 'p1',
-      title: 'Exame Disponível',
-      message: 'O resultado do seu exame de sangue já está disponível no sistema para visualização imediata.',
-      date: new Date(Date.now() - 3600000).toISOString(),
-      isNew: true
-    },
-    {
-      id: 'n2',
-      userId: 'p1',
-      title: 'Agendamento Confirmado',
-      message: 'Sua consulta com Dr. Roberto Lima foi confirmada pelo sistema da clínica.',
-      date: new Date(Date.now() - 172800000).toISOString(),
-      isNew: false
-    }
-  ]);
+  const [users, setUsers] = useState<(Patient | Doctor)[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAdminProModalOpen, setIsAdminProModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleSaveAppointment = (data: any) => {
+  // Sync Auth State and Personal Profile
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+          let userData: any;
+          if (userDoc.exists()) {
+            userData = userDoc.data();
+          } else if (fbUser.email === 'eletrotecnicamoderna@gmail.com') {
+            // Auto-create profile if admin email logs in for the first time
+            userData = {
+              id: fbUser.uid,
+              name: 'Administrador Geral',
+              email: fbUser.email,
+              role: 'admin',
+              status: 'active',
+              phone: '',
+              cpf: ''
+            };
+            await setDoc(doc(db, 'users', fbUser.uid), userData);
+          }
+
+          if (userData) {
+            // Force admin role for the specific email regardless of Firestore data
+            if (fbUser.email === 'eletrotecnicamoderna@gmail.com') {
+              userData.role = 'admin';
+            }
+            
+            setCurrentUser(userData);
+            setUserRole(userData.role);
+            
+            // Set initial tab based on role
+            if (activeTab === 'appointments' || activeTab === 'prof-dashboard' || activeTab === 'admin-dashboard') {
+               const defaultTab = userData.role === 'admin' ? 'admin-dashboard' : 
+                                (userData.role === 'professional' ? 'prof-dashboard' : 'appointments');
+               setActiveTab(defaultTab);
+            }
+          } else {
+            console.warn("User authenticated but no profile found in Firestore.");
+            signOut(auth);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          signOut(auth);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserRole(null);
+        setUsers([]);
+        setAppointments([]);
+        setNotifications([]);
+        setAuthView('login');
+      }
+      setIsLoading(false);
+    });
+    return () => unsubAuth();
+  }, [activeTab]);
+
+  // Sync Users (ADMIN ONLY)
+  useEffect(() => {
+    if (userRole !== 'admin') return;
+    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as (Patient | Doctor)[];
+      setUsers(usersData);
+    }, (error) => {
+      // Only report if still admin
+      if (userRole === 'admin') handleFirestoreError(error, OperationType.LIST, 'users');
+    });
+    return () => unsub();
+  }, [userRole]);
+
+  // Sync Appointments (Scoped by Role)
+  useEffect(() => {
+    if (!currentUser || !userRole) return;
+    
+    let q;
+    if (userRole === 'admin') {
+      q = collection(db, 'appointments');
+    } else if (userRole === 'patient') {
+      q = query(collection(db, 'appointments'), where('patientId', '==', currentUser.id));
+    } else {
+      q = query(collection(db, 'appointments'), where('doctorId', '==', currentUser.id));
+    }
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const appointmentsData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Appointment[];
+      setAppointments(appointmentsData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'appointments');
+    });
+    return () => unsub();
+  }, [currentUser, userRole]);
+
+  // Sync Notifications
+  useEffect(() => {
     if (!currentUser) return;
-    const newAppointment: Appointment = {
-      id: Math.random().toString(36).substr(2, 9),
+    const q = query(
+      collection(db, 'notifications'), 
+      where('userId', '==', currentUser.id),
+      orderBy('date', 'desc')
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const notificationsData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as AppNotification[];
+      setNotifications(notificationsData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'notifications');
+    });
+    return () => unsub();
+  }, [currentUser]);
+
+  const handleSaveAppointment = async (data: any) => {
+    if (!currentUser) return;
+    const appointmentId = Math.random().toString(36).substr(2, 9);
+    const newAppointment = {
+      id: appointmentId,
       patientId: userRole === 'patient' ? currentUser.id : data.patientId || 'p1',
       doctorId: userRole === 'professional' ? currentUser.id : data.doctorId,
       dateTime: data.dateTime,
       status: userRole === 'patient' ? 'pending' : 'scheduled',
-      notes: data.notes,
+      notes: data.notes || '',
     };
-    setAppointments([newAppointment, ...appointments]);
-    if (userRole === 'patient') {
-      alert('Sua solicitação de agendamento foi enviada e aguarda confirmação do administrador.');
-    }
-  };
 
-  const handleLogin = (role: UserRole, email?: string) => {
-    if (role === 'admin') {
-      setUserRole('admin');
-      setCurrentUser({ id: 'admin1', name: 'Admin MedSync', email: 'admin@medsync.com', role: 'admin', phone: '', cpf: '', status: 'active' });
-      setActiveTab('admin-dashboard');
-    } else {
-      const user = users.find(u => u.email === email && u.role === role);
-      if (user) {
-        if (user.role === 'professional' && user.status === 'pending') {
-          alert('Seu cadastro profissional está em análise. Por favor, aguarde a aprovação do administrador.');
-          return;
-        }
-        setUserRole(user.role);
-        setCurrentUser(user);
-        setActiveTab(user.role === 'professional' ? 'prof-dashboard' : 'appointments');
-      } else {
-        alert('Usuário não encontrado para este perfil. Verifique seu e-mail ou cadastre-se.');
+    try {
+      await setDoc(doc(db, 'appointments', appointmentId), newAppointment);
+      if (userRole === 'patient') {
+        alert('Sua solicitação de agendamento foi enviada e aguarda confirmação do administrador.');
       }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `appointments/${appointmentId}`);
     }
   };
 
-  const handleLogout = () => {
-    setUserRole(null);
-    setCurrentUser(null);
+  const handleLogin = async (role: UserRole, email: string, password?: string) => {
+    if (!email || !password) {
+      alert('Por favor, preencha todos os campos.');
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      await signInWithEmailAndPassword(auth, email, password);
+      // Profile will be picked up by onAuthStateChanged
+    } catch (error: any) {
+      setIsLoading(false);
+      let message = 'E-mail ou senha incorretos.';
+      if (email === 'eletrotecnicamoderna@gmail.com' && error.code === 'auth/user-not-found') {
+        message = 'Conta de administrador ainda não criada. Por favor, vá em "Cadastre-se" para criar sua conta de administrador.';
+      } else if (email === 'eletrotecnicamoderna@gmail.com' && error.code === 'auth/wrong-password') {
+        message = 'Senha de administrador incorreta. Tente "ADMIN" se você definiu anteriormente.';
+      } else if (error.code === 'auth/user-not-found') {
+        message = 'Usuário não encontrado.';
+      } else if (error.code === 'auth/wrong-password') {
+        message = 'Senha incorreta.';
+      }
+      alert(message);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+       console.error("Error signing out:", error);
+    }
   };
 
   const statusMap: Record<AppointmentStatus, string> = {
@@ -173,65 +239,99 @@ export default function App() {
     missed: 'Faltou',
   };
 
-  const handleRegister = (data: any, selectedRole: 'patient' | 'professional') => {
-    const newUser: Patient | Doctor = {
-      id: `${selectedRole === 'patient' ? 'p' : 'd'}${users.length + 1}`,
-      role: selectedRole,
-      status: selectedRole === 'professional' ? 'pending' : 'active',
-      ...data
-    } as any;
-    setUsers([...users, newUser]);
-    setAuthView('login');
-    if (selectedRole === 'professional') {
-      alert('Cadastro realizado com sucesso! Sua conta profissional está em análise pelo administrador.');
-    } else {
-      alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
+  const handleRegister = async (data: any, selectedRole: 'patient' | 'professional' | 'admin') => {
+    try {
+      setIsLoading(true);
+      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+      const userId = userCredential.user.uid;
+      
+      const isGlobalAdmin = data.email === 'eletrotecnicamoderna@gmail.com';
+      const actualRole = isGlobalAdmin ? 'admin' : selectedRole;
+      
+      const newUser = {
+        id: userId,
+        name: data.name,
+        email: data.email,
+        role: actualRole,
+        phone: data.phone,
+        cpf: data.cpf,
+        birthDate: data.birthDate,
+        address: data.address,
+        status: (actualRole === 'professional' && !isGlobalAdmin) ? 'pending' : 'active',
+        specialty: actualRole === 'professional' ? data.specialty : '',
+        crm: actualRole === 'professional' ? data.crm : '',
+      };
+
+      await setDoc(doc(db, 'users', userId), newUser);
+      
+      if (selectedRole === 'professional') {
+        alert('Cadastro realizado com sucesso! Sua conta profissional está em análise pelo administrador.');
+        await signOut(auth);
+      } else {
+        alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
+      }
+    } catch (error: any) {
+      setIsLoading(false);
+      let message = 'Erro ao realizar cadastro.';
+      if (error.code === 'auth/email-already-in-use') {
+        message = 'Este e-mail já está em uso.';
+      }
+      alert(message);
     }
   };
 
-  const handleApprovePro = (id: string) => {
-    setUsers(users.map(u => u.id === id ? { ...u, status: 'active' } : u));
-    alert('Profissional aprovado com sucesso!');
+  const handleApprovePro = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'users', id), { status: 'active' });
+      alert('Profissional aprovado com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${id}`);
+    }
   };
 
-  const handleConfirmAppointment = (id: string) => {
+  const handleConfirmAppointment = async (id: string) => {
     const appointment = appointments.find(a => a.id === id);
     if (!appointment) return;
 
     const patient = users.find(u => u.id === appointment.patientId) as Patient;
     const doctor = users.find(u => u.id === appointment.doctorId) as Doctor;
 
-    setAppointments(appointments.map(a => a.id === id ? { ...a, status: 'scheduled' } : a));
+    try {
+      await updateDoc(doc(db, 'appointments', id), { status: 'scheduled' });
 
-    const appointmentDate = format(new Date(appointment.dateTime), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
-    const message = `Olá ${patient.name}, sua consulta com ${doctor.name} para o dia ${appointmentDate} foi CONFIRMADA pela MedSync.`;
+      const appointmentDate = format(new Date(appointment.dateTime), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+      const nMessage = `Sua consulta com ${doctor.name} no dia ${appointmentDate} foi confirmada.`;
 
-    // Simulated communications
-    console.log('WhatsApp confirmation sent (wa.me link):', `https://wa.me/${patient.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`);
-    console.log(`Email sent to ${patient.email}: Confirmation for appointment on ${appointmentDate}`);
-
-    // Update in-app notifications
-    setNotifications([
-      {
-        id: Math.random().toString(36).substr(2, 9),
+      // Update in-app notifications
+      const notifId = Math.random().toString(36).substr(2, 9);
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
         userId: patient.id,
         title: 'Consulta Confirmada!',
-        message: `Sua consulta com ${doctor.name} no dia ${appointmentDate} foi confirmada.`,
+        message: nMessage,
         date: new Date().toISOString(),
         isNew: true
-      },
-      ...notifications
-    ]);
+      });
 
-    alert('Agendamento confirmado! Notificações enviadas via Sistema, E-mail e WhatsApp.');
+      alert('Agendamento confirmado! Notificações enviadas via Sistema, E-mail e WhatsApp.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'confirm_appointment');
+    }
   };
 
-  const handleDeleteUser = (id: string) => {
+  const handleDeleteUser = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) {
-      setUsers(users.filter(u => u.id !== id));
-      // Also remove their appointments
-      setAppointments(appointments.filter(a => a.patientId !== id && a.doctorId !== id));
-      alert('Usuário removido com sucesso!');
+      try {
+        await deleteDoc(doc(db, 'users', id));
+        // Cleanup appointments
+        const userAppointments = appointments.filter(a => a.patientId === id || a.doctorId === id);
+        for (const appt of userAppointments) {
+          await deleteDoc(doc(db, 'appointments', appt.id));
+        }
+        alert('Usuário removido com sucesso!');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
+      }
     }
   };
 
@@ -432,8 +532,15 @@ export default function App() {
                             {appointment.status === 'scheduled' ? 'CONFIRMADO' : 'AGUARDANDO'}
                           </span>
                           <button 
-                            onClick={() => setAppointments(appointments.filter(a => a.id !== appointment.id))}
+                            onClick={async () => {
+                              try {
+                                await deleteDoc(doc(db, 'appointments', appointment.id));
+                              } catch (error) {
+                                handleFirestoreError(error, OperationType.DELETE, `appointments/${appointment.id}`);
+                              }
+                            }}
                             className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                            title="Cancelar Agendamento"
                           >
                             <XCircle className="w-5 h-5" />
                           </button>
@@ -561,7 +668,13 @@ export default function App() {
                     </div>
                     {notification.isNew && (
                       <button 
-                        onClick={() => setNotifications(notifications.map(n => n.id === notification.id ? { ...n, isNew: false } : n))}
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'notifications', notification.id), { isNew: false });
+                          } catch (error) {
+                            handleFirestoreError(error, OperationType.UPDATE, `notifications/${notification.id}`);
+                          }
+                        }}
                         className="absolute top-4 right-4 text-[9px] font-bold text-slate-300 hover:text-blue-600 uppercase"
                       >
                         Marcar como lida
@@ -792,7 +905,15 @@ export default function App() {
                                   Confirmar e Notificar
                                 </button>
                                 <button 
-                                  onClick={() => setAppointments(appointments.filter(ap => ap.id !== a.id))}
+                                  onClick={async () => {
+                                    if (window.confirm('Rejeitar esta solicitação?')) {
+                                      try {
+                                        await deleteDoc(doc(db, 'appointments', a.id));
+                                      } catch (error) {
+                                        handleFirestoreError(error, OperationType.DELETE, `appointments/${a.id}`);
+                                      }
+                                    }
+                                  }}
                                   className="text-red-500 hover:bg-red-50 p-2.5 rounded-xl transition-all"
                                 >
                                   <XCircle className="w-5 h-5" />
@@ -849,7 +970,15 @@ export default function App() {
                                   </button>
                                 )}
                                 <button 
-                                  onClick={() => setAppointments(appointments.filter(ap => ap.id !== a.id))}
+                                  onClick={async () => {
+                                    if (window.confirm('Excluir este agendamento?')) {
+                                      try {
+                                        await deleteDoc(doc(db, 'appointments', a.id));
+                                      } catch (error) {
+                                        handleFirestoreError(error, OperationType.DELETE, `appointments/${a.id}`);
+                                      }
+                                    }
+                                  }}
                                   className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                 >
                                   <Trash2 className="w-5 h-5" />

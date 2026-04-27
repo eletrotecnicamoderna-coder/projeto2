@@ -9,11 +9,11 @@ import { Calendar, User, Mail, Lock, Phone, CreditCard, ArrowLeft, CheckCircle2,
 
 interface RegisterProps {
   onBackToLogin: () => void;
-  onRegister: (data: any, role: 'patient' | 'professional') => void;
+  onRegister: (data: any, role: 'patient' | 'professional' | 'admin') => void;
 }
 
 export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
-  const [role, setRole] = useState<'patient' | 'professional'>('patient');
+  const [role, setRole] = useState<'patient' | 'professional' | 'admin'>('patient');
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -120,6 +120,14 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
                     <Stethoscope className="w-4 h-4" />
                     Médico
                   </button>
+                  <button 
+                    type="button"
+                    onClick={() => setRole('admin')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${role === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    Admin
+                  </button>
                 </div>
                 <div className="relative group">
                   <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
@@ -143,6 +151,9 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
                     onChange={handleChange}
                     className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-medium text-sm text-slate-700 shadow-sm"
                   />
+                  {formData.email === 'eletrotecnicamoderna@gmail.com' && (
+                    <p className="text-[10px] text-blue-600 font-bold ml-4 uppercase tracking-widest">E-mail administrativo detectado. Use a senha "ADMIN".</p>
+                  )}
                 </div>
                 <div className="relative group">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />

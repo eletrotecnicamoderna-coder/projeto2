@@ -8,7 +8,7 @@ import { motion } from 'motion/react';
 import { Calendar, User, ShieldCheck, Mail, Lock, ArrowRight, Stethoscope } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (role: 'patient' | 'admin' | 'professional', email: string) => void;
+  onLogin: (role: 'patient' | 'admin' | 'professional', email: string, password: string) => void;
   onShowRegister: () => void;
 }
 
@@ -19,7 +19,7 @@ export default function Login({ onLogin, onShowRegister }: LoginProps) {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    onLogin(role, email);
+    onLogin(role, email, password);
   };
 
   return (
