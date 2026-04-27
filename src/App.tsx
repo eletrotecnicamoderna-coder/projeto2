@@ -28,6 +28,8 @@ import {
   createUserWithEmailAndPassword, 
   onAuthStateChanged,
   signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from './lib/firebase';
@@ -196,6 +198,24 @@ export default function App() {
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `appointments/${appointmentId}`);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      setIsLoading(true);
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      setIsLoading(false);
+      console.error(error);
+      if (error.code === 'auth/popup-blocked') {
+        alert('O popup de login foi bloqueado pelo seu navegador. Por favor, permita popups.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        alert('O login por E-mail/Senha está desativado no Firebase. Por favor, entre usando o Google.');
+      } else {
+        alert('Erro ao entrar com Google: ' + error.message);
+      }
     }
   };
 
@@ -371,7 +391,7 @@ export default function App() {
     if (authView === 'register') {
       return <Register onBackToLogin={() => setAuthView('login')} onRegister={handleRegister} />;
     }
-    return <Login onLogin={handleLogin} onShowRegister={() => setAuthView('register')} />;
+    return <Login onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} onShowRegister={() => setAuthView('register')} />;
   }
 
   return (
