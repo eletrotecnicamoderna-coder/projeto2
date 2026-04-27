@@ -215,7 +215,7 @@ export default function App() {
       if (email === 'eletrotecnicamoderna@gmail.com' && error.code === 'auth/user-not-found') {
         message = 'Conta de administrador ainda não criada. Por favor, vá em "Cadastre-se" para criar sua conta de administrador.';
       } else if (email === 'eletrotecnicamoderna@gmail.com' && error.code === 'auth/wrong-password') {
-        message = 'Senha de administrador incorreta. Tente "ADMIN" se você definiu anteriormente.';
+        message = 'Senha de administrador incorreta. Tente "ADMIN123".';
       } else if (error.code === 'auth/user-not-found') {
         message = 'Usuário não encontrado.';
       } else if (error.code === 'auth/wrong-password') {
@@ -248,8 +248,8 @@ export default function App() {
       const isGlobalAdmin = data.email === 'eletrotecnicamoderna@gmail.com';
       
       // Enforce the ADMIN password for the global admin email
-      if (isGlobalAdmin && data.password.toUpperCase() !== 'ADMIN') {
-        alert('Para o e-mail de administrador, a senha deve ser "ADMIN" conforme solicitado.');
+      if (isGlobalAdmin && data.password.toUpperCase() !== 'ADMIN123') {
+        alert('Para o e-mail de administrador, a senha deve ser "ADMIN123" (mínimo de 6 caracteres exigido pelo sistema).');
         setIsLoading(false);
         return;
       }

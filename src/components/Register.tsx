@@ -152,7 +152,7 @@ export default function Register({ onBackToLogin, onRegister }: RegisterProps) {
                     className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-medium text-sm text-slate-700 shadow-sm"
                   />
                   {formData.email === 'eletrotecnicamoderna@gmail.com' && (
-                    <p className="text-[10px] text-blue-600 font-bold ml-4 uppercase tracking-widest">E-mail administrativo detectado. Use a senha "ADMIN".</p>
+                    <p className="text-[10px] text-blue-600 font-bold ml-4 uppercase tracking-widest">E-mail administrativo detectado. Use a senha "ADMIN123".</p>
                   )}
                 </div>
                 <div className="relative group">
