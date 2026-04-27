@@ -123,15 +123,17 @@ export default function App() {
     return () => unsubAuth();
   }, [activeTab]);
 
-  // Sync Users (ADMIN ONLY)
+  // Sync Users (ADMIN and PROFESSIONAL)
   useEffect(() => {
-    if (userRole !== 'admin') return;
+    if (userRole !== 'admin' && userRole !== 'professional') return;
     const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as (Patient | Doctor)[];
       setUsers(usersData);
     }, (error) => {
-      // Only report if still admin
-      if (userRole === 'admin') handleFirestoreError(error, OperationType.LIST, 'users');
+      // Only report if still authorized
+      if (userRole === 'admin' || userRole === 'professional') {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      }
     });
     return () => unsub();
   }, [userRole]);
@@ -242,10 +244,19 @@ export default function App() {
   const handleRegister = async (data: any, selectedRole: 'patient' | 'professional' | 'admin') => {
     try {
       setIsLoading(true);
+
+      const isGlobalAdmin = data.email === 'eletrotecnicamoderna@gmail.com';
+      
+      // Enforce the ADMIN password for the global admin email
+      if (isGlobalAdmin && data.password.toUpperCase() !== 'ADMIN') {
+        alert('Para o e-mail de administrador, a senha deve ser "ADMIN" conforme solicitado.');
+        setIsLoading(false);
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const userId = userCredential.user.uid;
       
-      const isGlobalAdmin = data.email === 'eletrotecnicamoderna@gmail.com';
       const actualRole = isGlobalAdmin ? 'admin' : selectedRole;
       
       const newUser = {
@@ -264,19 +275,25 @@ export default function App() {
 
       await setDoc(doc(db, 'users', userId), newUser);
       
-      if (selectedRole === 'professional') {
-        alert('Cadastro realizado com sucesso! Sua conta profissional está em análise pelo administrador.');
-        await signOut(auth);
-      } else {
-        alert('Cadastro realizado com sucesso! Agora você pode fazer login.');
-      }
+      const successMessage = actualRole === 'professional' && !isGlobalAdmin
+        ? 'Cadastro realizado com sucesso! Sua conta profissional está em análise pelo administrador.'
+        : 'Cadastro realizado com sucesso! Agora você pode fazer login com seu e-mail e senha.';
+
+      alert(successMessage);
+      
+      // Always sign out after registration to prevent session inheritance
+      await signOut(auth);
+      setAuthView('login');
+      setIsLoading(false);
     } catch (error: any) {
       setIsLoading(false);
       let message = 'Erro ao realizar cadastro.';
       if (error.code === 'auth/email-already-in-use') {
         message = 'Este e-mail já está em uso.';
+      } else if (error.code === 'auth/weak-password') {
+        message = 'A senha é muito fraca. Tente uma senha mais forte.';
       }
-      alert(message);
+      alert(`${message} (${error.message})`);
     }
   };
 
