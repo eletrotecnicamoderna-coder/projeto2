@@ -109,23 +109,7 @@ export default function App() {
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         try {
-          // Attempt to get doc with a timeout
-          const profilePromise = getDoc(doc(db, 'users', fbUser.uid));
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('timeout')), 5000)
-          );
-
-          let userDoc: any;
-          try {
-            userDoc = await Promise.race([profilePromise, timeoutPromise]);
-          } catch (e: any) {
-            console.warn("Profile fetch timed out, attempting to use cache...");
-            try {
-              userDoc = await getDocFromCache(doc(db, 'users', fbUser.uid));
-            } catch (cacheError) {
-              console.error("Cache fetch failed too:", cacheError);
-            }
-          }
+          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
 
           let userData: any;
           if (userDoc?.exists()) {

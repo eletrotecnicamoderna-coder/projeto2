@@ -13,8 +13,7 @@ const app = initializeApp(firebaseConfig);
 // Using initializeFirestore instead of getFirestore to enable extra settings
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-  host: 'firestore.googleapis.com',
-  ssl: true,
+  experimentalAutoDetectLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
