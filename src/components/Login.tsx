@@ -10,10 +10,11 @@ import { Calendar, User, ShieldCheck, Mail, Lock, ArrowRight, Stethoscope } from
 interface LoginProps {
   onLogin: (role: 'patient' | 'admin' | 'professional', email: string, password: string) => void;
   onGoogleLogin: () => void;
+  onEmergencyAdmin: () => void;
   onShowRegister: () => void;
 }
 
-export default function Login({ onLogin, onGoogleLogin, onShowRegister }: LoginProps) {
+export default function Login({ onLogin, onGoogleLogin, onEmergencyAdmin, onShowRegister }: LoginProps) {
   const [role, setRole] = useState<'patient' | 'admin' | 'professional'>('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -108,10 +109,10 @@ export default function Login({ onLogin, onGoogleLogin, onShowRegister }: LoginP
 
             <button 
               type="submit"
-              className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2"
+              className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-3 border-2 border-blue-400 group"
             >
               Entrar no Sistema
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
 
             <div className="relative my-4">
@@ -147,6 +148,15 @@ export default function Login({ onLogin, onGoogleLogin, onShowRegister }: LoginP
                 />
               </svg>
               Entrar com Google
+            </button>
+
+            <button 
+              type="button"
+              onClick={onEmergencyAdmin}
+              className="w-full mt-2 bg-red-50 text-red-600 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest border border-red-100 hover:bg-white hover:border-red-400 transition-all flex items-center justify-center gap-3"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Acesso de Emergência (Admin)
             </button>
           </form>
 

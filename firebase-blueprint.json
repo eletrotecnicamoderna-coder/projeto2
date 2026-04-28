@@ -35,6 +35,25 @@
       },
       "required": ["id", "patientId", "doctorId", "dateTime", "status"]
     },
+    "MedicalDocument": {
+      "title": "Medical Document",
+      "description": "Medical records, prescriptions, and exam files",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "appointmentId": { "type": "string" },
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "allowedViewerIds": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string", "enum": ["clinical_record", "prescription", "exam", "other"] },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "appointmentId", "patientId", "doctorId", "type", "title", "createdAt", "allowedViewerIds"]
+    },
     "Notification": {
       "title": "Notification",
       "description": "In-app notification for users",
@@ -58,6 +77,10 @@
     "appointments/{appointmentId}": {
       "schema": "Appointment",
       "description": "Medical appointments"
+    },
+    "medical_documents/{docId}": {
+      "schema": "MedicalDocument",
+      "description": "Medical records, prescriptions and exams"
     },
     "notifications/{notificationId}": {
       "schema": "Notification",

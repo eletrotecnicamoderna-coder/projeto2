@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
-import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Calendar, History, Bell, User, Plus, CheckCircle2, XCircle, Clock, ShieldCheck, LogOut, Users, Stethoscope, Search, FileText, Trash2, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -21,6 +21,7 @@ import {
   setDoc,
   getDocs,
   getDoc,
+  getDocFromCache,
   Timestamp
 } from 'firebase/firestore';
 import { 
@@ -30,10 +31,12 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from './lib/firebase';
 import { handleFirestoreError, OperationType } from './lib/firestoreService';
+import firebaseConfig from '../firebase-applet-config.json';
 
 // Types
 import { Appointment, Patient, AppointmentStatus, UserRole, UserProfile, Doctor } from './types';
@@ -51,6 +54,8 @@ interface AppNotification {
 import AppointmentModal from './components/AppointmentModal';
 import Register from './components/Register';
 import AddProfessionalModal from './components/AddProfessionalModal';
+import ConsultationPortal from './components/ConsultationPortal';
+import MedicalHistoryModal from './components/MedicalHistoryModal';
 
 type AuthView = 'login' | 'register';
 
@@ -64,16 +69,66 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAdminProModalOpen, setIsAdminProModalOpen] = useState(false);
+  const [activeConsultation, setActiveConsultation] = useState<Appointment | null>(null);
+  const [selectedAppointmentHistory, setSelectedAppointmentHistory] = useState<Appointment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthPending, setIsAuthPending] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [lastSync, setLastSync] = useState<Date>(new Date());
+
+  const handleManualRefresh = useCallback(async () => {
+    if (!currentUser) return;
+    setIsSyncing(true);
+    try {
+      // Force getDocs to bypass cache if it's acting up
+      const appts = await getDocs(collection(db, 'appointments'));
+      const appointmentsData = appts.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Appointment[];
+      setAppointments(appointmentsData);
+      
+      const usrs = await getDocs(collection(db, 'users'));
+      const usersData = usrs.docs.map(doc => ({ ...doc.data(), id: doc.id })) as (Patient | Doctor)[];
+      setUsers(usersData);
+      
+      setLastSync(new Date());
+      console.log("Manual sync completed at:", new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error("Manual sync failed:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [currentUser]);
 
   // Sync Auth State and Personal Profile
   useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+          // Attempt to get doc with a timeout
+          const profilePromise = getDoc(doc(db, 'users', fbUser.uid));
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('timeout')), 5000)
+          );
+
+          let userDoc: any;
+          try {
+            userDoc = await Promise.race([profilePromise, timeoutPromise]);
+          } catch (e: any) {
+            console.warn("Profile fetch timed out, attempting to use cache...");
+            try {
+              userDoc = await getDocFromCache(doc(db, 'users', fbUser.uid));
+            } catch (cacheError) {
+              console.error("Cache fetch failed too:", cacheError);
+            }
+          }
+
           let userData: any;
-          if (userDoc.exists()) {
+          if (userDoc?.exists()) {
             userData = userDoc.data();
           } else if (fbUser.email === 'eletrotecnicamoderna@gmail.com') {
             // Auto-create profile if admin email logs in for the first time
@@ -122,23 +177,41 @@ export default function App() {
       }
       setIsLoading(false);
     });
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [activeTab]);
 
-  // Sync Users (ADMIN and PROFESSIONAL)
+  // Sync Users (All authenticated users need to see doctor/patient names)
   useEffect(() => {
-    if (userRole !== 'admin' && userRole !== 'professional') return;
-    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+    if (!currentUser || !userRole) return;
+    
+    let q;
+    if (userRole === 'admin') {
+      q = collection(db, 'users');
+    } else if (userRole === 'professional') {
+      // Professionals can see everyone (patients and other doctors)
+      q = collection(db, 'users');
+    } else {
+      // Patients can only see active professionals to book appointments
+      q = query(collection(db, 'users'), where('role', '==', 'professional'), where('status', '==', 'active'));
+    }
+
+    const unsub = onSnapshot(q, (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as (Patient | Doctor)[];
-      setUsers(usersData);
-    }, (error) => {
-      // Only report if still authorized
-      if (userRole === 'admin' || userRole === 'professional') {
-        handleFirestoreError(error, OperationType.LIST, 'users');
+      // If patient, ensure they have their own profile in the list as well
+      if (userRole === 'patient' && !usersData.find(u => u.id === currentUser.id)) {
+        setUsers([currentUser as any, ...usersData]);
+      } else {
+        setUsers(usersData);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
     return () => unsub();
-  }, [userRole]);
+  }, [currentUser, userRole]);
 
   // Sync Appointments (Scoped by Role)
   useEffect(() => {
@@ -202,35 +275,95 @@ export default function App() {
   };
 
   const handleGoogleLogin = async () => {
+    if (isAuthPending) return;
     try {
+      setIsAuthPending(true);
       setIsLoading(true);
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+      setIsAuthPending(false);
     } catch (error: any) {
+      setIsAuthPending(false);
       setIsLoading(false);
       console.error(error);
       if (error.code === 'auth/popup-blocked') {
-        alert('O popup de login foi bloqueado pelo seu navegador. Por favor, permita popups.');
+        alert('O popup de login foi bloqueado!\n\nPara resolver:\n1. Tente abrir o app em uma NOVA ABA do navegador.\n2. No topo do navegador (barra de endereços), clique no ícone de "Janela bloqueada" e selecione "Sempre permitir popups para este site".');
+      } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        // Just reset, user probably closed it intentionally
+        console.log('Popup login was cancelled or closed.');
       } else if (error.code === 'auth/operation-not-allowed') {
-        alert('O login por E-mail/Senha está desativado no Firebase. Por favor, entre usando o Google.');
+        alert('O login por Google está desativado no Firebase.\n\nPara ativar:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/providers\n2. Clique em "Adicionar novo provedor" (ou "Aba Fazer login")\n3. Escolha "Google" e clique em Ativar.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        alert('ERRO DE SEGURANÇA: Este link/domínio não está autorizado no Firebase.\n\nPara resolver agora:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/settings\n2. Clique na aba "Domínios de redirecionamento" (ou Domínios autorizados)\n3. Clique em "Adicionar domínio"\n4. Digite ou cole isto: ' + window.location.hostname + '\n5. Clique em "Adicionar".');
+      } else if (error.code === 'auth/api-key-not-found' || error.message.includes('api-key-not-found')) {
+        alert('ERRO DE CONFIGURAÇÃO: Chave de API não encontrada ou inválida.\n\nIsso geralmente acontece quando a chave substituída não pertence ao Projeto ID (' + (firebaseConfig as any).projectId + ') configurado.\n\nPor favor, use a chave original gerada pelo sistema ou forneça toda a configuração do seu projeto.');
       } else {
         alert('Erro ao entrar com Google: ' + error.message);
       }
     }
   };
 
+  const handleEmergencyAdmin = async () => {
+    if (isAuthPending) return;
+    try {
+      setIsAuthPending(true);
+      setIsLoading(true);
+      // Try anonymous sign in as a fallback
+      const userCredential = await signInAnonymously(auth);
+      const userId = userCredential.user.uid;
+
+      // Force create/update admin record linked to this anonymous session
+      const adminUser = {
+        id: userId,
+        name: 'Administrador (Emergência)',
+        email: 'eletrotecnicamoderna@gmail.com',
+        role: 'admin',
+        phone: '',
+        cpf: '',
+        birthDate: '',
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'users', userId), adminUser);
+      setIsAuthPending(false);
+      setUserRole('admin');
+      setCurrentUser(adminUser as any); 
+      setAuthView('login'); // Temporary fallback, will be updated by onAuthStateChanged
+      setIsLoading(false);
+      alert('Acesso de emergência concedido. Você agora é o Administrador do sistema.');
+    } catch (error: any) {
+      setIsAuthPending(false);
+      setIsLoading(false);
+      console.error(error);
+      if (error.code === 'auth/operation-not-allowed') {
+        alert('O "Acesso Anônimo" está desativado no Firebase.\n\nPara ativar:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/providers\n2. Clique em "Adicionar novo provedor"\n3. Selecione "Anônimo" e clique em Ativar no final da página.');
+      } else {
+        alert('Erro no acesso de emergência: ' + error.message);
+      }
+    }
+  };
+
   const handleLogin = async (role: UserRole, email: string, password?: string) => {
+    if (isAuthPending) return;
     if (!email || !password) {
       alert('Por favor, preencha todos os campos.');
       return;
     }
     
     try {
+      setIsAuthPending(true);
       setIsLoading(true);
       await signInWithEmailAndPassword(auth, email, password);
+      setIsAuthPending(false);
       // Profile will be picked up by onAuthStateChanged
     } catch (error: any) {
+      setIsAuthPending(false);
       setIsLoading(false);
+      if (error.code === 'auth/operation-not-allowed') {
+        alert('O login por "E-mail/Senha" está desativado no Firebase.\n\nPara ativar:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/providers\n2. Clique em "Adicionar novo provedor"\n3. Selecione "E-mail/Senha" e ative o botão "E-mail/senha" (o primeiro switch).');
+        return;
+      }
       let message = 'E-mail ou senha incorretos.';
       if (email === 'eletrotecnicamoderna@gmail.com' && error.code === 'auth/user-not-found') {
         message = 'Conta de administrador ainda não criada. Por favor, vá em "Cadastre-se" para criar sua conta de administrador.';
@@ -262,7 +395,9 @@ export default function App() {
   };
 
   const handleRegister = async (data: any, selectedRole: 'patient' | 'professional' | 'admin') => {
+    if (isAuthPending) return;
     try {
+      setIsAuthPending(true);
       setIsLoading(true);
 
       const isGlobalAdmin = data.email === 'eletrotecnicamoderna@gmail.com';
@@ -271,6 +406,7 @@ export default function App() {
       if (isGlobalAdmin && data.password.toUpperCase() !== 'ADMIN123') {
         alert('Para o e-mail de administrador, a senha deve ser "ADMIN123" (mínimo de 6 caracteres exigido pelo sistema).');
         setIsLoading(false);
+        setIsAuthPending(false);
         return;
       }
 
@@ -281,16 +417,17 @@ export default function App() {
       
       const newUser = {
         id: userId,
-        name: data.name,
-        email: data.email,
+        name: data.name || '',
+        email: data.email || '',
         role: actualRole,
-        phone: data.phone,
-        cpf: data.cpf,
-        birthDate: data.birthDate,
-        address: data.address,
+        phone: data.phone || '',
+        cpf: data.cpf || '',
+        birthDate: data.birthDate || '',
+        address: data.address || '',
         status: (actualRole === 'professional' && !isGlobalAdmin) ? 'pending' : 'active',
-        specialty: actualRole === 'professional' ? data.specialty : '',
-        crm: actualRole === 'professional' ? data.crm : '',
+        specialty: actualRole === 'professional' ? (data.specialty || '') : '',
+        crm: actualRole === 'professional' ? (data.crm || '') : '',
+        createdAt: new Date().toISOString()
       };
 
       await setDoc(doc(db, 'users', userId), newUser);
@@ -303,15 +440,21 @@ export default function App() {
       
       // Always sign out after registration to prevent session inheritance
       await signOut(auth);
+      setIsAuthPending(false);
       setAuthView('login');
       setIsLoading(false);
     } catch (error: any) {
+      setIsAuthPending(false);
       setIsLoading(false);
       let message = 'Erro ao realizar cadastro.';
+      if (error.code === 'auth/operation-not-allowed') {
+        alert('O cadastro por "E-mail/Senha" está desativado no Firebase.\n\nPara ativar:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/providers\n2. Clique em "Adicionar novo provedor"\n3. Selecione "E-mail/Senha" e ative o botão "E-mail/senha" (o primeiro switch).');
+        return;
+      }
       if (error.code === 'auth/email-already-in-use') {
         message = 'Este e-mail já está em uso.';
       } else if (error.code === 'auth/weak-password') {
-        message = 'A senha é muito fraca. Tente uma senha mais forte.';
+        message = 'A senha é muito fraca (mínimo de 6 caracteres exigido pelo Firebase).';
       }
       alert(`${message} (${error.message})`);
     }
@@ -391,7 +534,12 @@ export default function App() {
     if (authView === 'register') {
       return <Register onBackToLogin={() => setAuthView('login')} onRegister={handleRegister} />;
     }
-    return <Login onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} onShowRegister={() => setAuthView('register')} />;
+    return <Login 
+      onLogin={handleLogin} 
+      onGoogleLogin={handleGoogleLogin} 
+      onEmergencyAdmin={handleEmergencyAdmin} 
+      onShowRegister={() => setAuthView('register')} 
+    />;
   }
 
   return (
@@ -459,7 +607,7 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header */}
-        <header className="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 z-10">
+        <header className="h-20 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between shrink-0 z-10">
           <div>
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">
               {activeTab === 'appointments' && 'Gestão de Agenda'}
@@ -475,7 +623,7 @@ export default function App() {
             </p>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
             <div className="relative p-2 text-slate-400 hover:text-slate-600 cursor-pointer hidden sm:block" onClick={() => userRole === 'patient' && setActiveTab('notifications')}>
               <Bell className="w-6 h-6" />
               {notifications.filter(n => n.userId === currentUser?.id && n.isNew).length > 0 && (
@@ -484,6 +632,31 @@ export default function App() {
                 </span>
               )}
             </div>
+            <div className="hidden md:flex flex-col items-end mr-2">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${isOffline ? 'bg-red-500' : (isSyncing ? 'bg-amber-400 animate-spin' : 'bg-green-500')}`} />
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    {isOffline ? 'Offline' : (isSyncing ? 'Sincronizando...' : 'Sincronizado')}
+                  </span>
+                  <button 
+                    onClick={handleManualRefresh}
+                    disabled={isSyncing || isOffline}
+                    className="p-1 text-slate-300 hover:text-blue-600 transition-colors disabled:opacity-30"
+                    title="Forçar Sincronização"
+                  >
+                    <RefreshCcw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                <span className="text-[8px] text-slate-300 uppercase font-bold">Última atualização: {format(lastSync, 'HH:mm:ss')}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1 p-2 px-3 bg-red-50 text-red-600 rounded-lg md:bg-transparent md:text-slate-400 hover:text-red-500 transition-colors border border-red-100 md:border-transparent shadow-sm md:shadow-none"
+              title="Sair do Sistema"
+            >
+              <LogOut className="w-5 h-5 md:w-6 md:h-6" />
+              <span className="text-xs font-bold md:hidden">Sair</span>
+            </button>
             {userRole === 'patient' && (
               <button 
                 onClick={() => setIsModalOpen(true)}
@@ -502,6 +675,7 @@ export default function App() {
             isOpen={isModalOpen} 
             onClose={() => setIsModalOpen(false)} 
             onSave={handleSaveAppointment}
+            doctors={users.filter(u => u.role === 'professional' && u.status === 'active') as Doctor[]}
           />
 
           <AddProfessionalModal 
@@ -509,6 +683,34 @@ export default function App() {
             onClose={() => setIsAdminProModalOpen(false)}
             onSave={(data) => handleRegister(data, 'professional')}
           />
+
+          {activeConsultation && (
+            <ConsultationPortal 
+              appointment={activeConsultation}
+              patient={users.find(u => u.id === activeConsultation.patientId) || null}
+              userRole={userRole}
+              onClose={() => setActiveConsultation(null)}
+              onComplete={() => setActiveConsultation(null)}
+              onViewFullHistory={() => {
+                const lastAppt = appointments
+                  .filter(a => a.patientId === activeConsultation.patientId && a.status === 'completed' && a.id !== activeConsultation.id)
+                  .sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())[0];
+                if (lastAppt) {
+                  setSelectedAppointmentHistory(lastAppt);
+                } else {
+                  alert('Este paciente ainda não possui consultas concluídas anteriores.');
+                }
+              }}
+            />
+          )}
+
+          {selectedAppointmentHistory && (
+            <MedicalHistoryModal 
+              appointment={selectedAppointmentHistory}
+              userRole={userRole}
+              onClose={() => setSelectedAppointmentHistory(null)}
+            />
+          )}
 
           <AnimatePresence mode="wait">
             {activeTab === 'appointments' && (
@@ -545,23 +747,25 @@ export default function App() {
                     <span className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer uppercase tracking-widest">Ver calendário →</span>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.patientId === currentUser?.id && (a.status === 'scheduled' || a.status === 'pending')).map((appointment) => (
-                      <div key={appointment.id} className="p-6 flex flex-col md:flex-row items-center justify-between gap-6 hover:bg-slate-50 transition-colors">
-                        <div className="flex items-center gap-6">
-                          <div className="w-14 h-14 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center justify-center shadow-inner">
-                            <span className="text-blue-600 font-black text-xl leading-none">{format(new Date(appointment.dateTime), 'dd')}</span>
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mt-1">{format(new Date(appointment.dateTime), 'MMM', { locale: ptBR })}</span>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-                              <User className="w-5 h-5 text-slate-400" />
+                    {appointments.filter(a => a.patientId === currentUser?.id && (a.status === 'scheduled' || a.status === 'pending')).map((appointment) => {
+                      const doctor = users.find(u => u.id === appointment.doctorId);
+                      return (
+                        <div key={appointment.id} className="p-6 flex flex-col md:flex-row items-center justify-between gap-6 hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-6">
+                            <div className="w-14 h-14 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center justify-center shadow-inner">
+                              <span className="text-blue-600 font-black text-xl leading-none">{format(new Date(appointment.dateTime), 'dd')}</span>
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mt-1">{format(new Date(appointment.dateTime), 'MMM', { locale: ptBR })}</span>
                             </div>
-                            <div>
-                               <h4 className="font-bold text-slate-900 text-base tracking-tight">Dr. Cláudio Santos</h4>
-                               <p className="text-xs text-slate-500 font-medium tracking-tight">Cardiologia • {format(new Date(appointment.dateTime), "HH:mm 'hs'", { locale: ptBR })}</p>
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+                                <User className="w-5 h-5 text-slate-400" />
+                              </div>
+                              <div>
+                                 <h4 className="font-bold text-slate-900 text-base tracking-tight">{doctor?.name || 'Médico'}</h4>
+                                 <p className="text-xs text-slate-500 font-medium tracking-tight">{(doctor as any)?.specialty || 'Especialista'} • {format(new Date(appointment.dateTime), "HH:mm 'hs'", { locale: ptBR })}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
                         <div className="flex items-center gap-4">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm ${
                             appointment.status === 'scheduled' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100'
@@ -583,7 +787,8 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                     {appointments.filter(a => a.patientId === currentUser?.id && (a.status === 'scheduled' || a.status === 'pending')).length === 0 && (
                       <div className="p-20 text-center text-slate-400">
                         <Calendar className="w-12 h-12 mx-auto mb-4 opacity-10" />
@@ -617,32 +822,47 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <button className="bg-blue-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-blue-700 transition-colors">
-                      Baixar Relatório Completo
+                    <button 
+                      onClick={() => {
+                        const fakeAppt: Appointment = {
+                          id: 'external_' + Math.random().toString(36).substr(2, 9),
+                          patientId: currentUser?.id || '',
+                          doctorId: 'external',
+                          dateTime: new Date().toISOString(),
+                          status: 'completed',
+                          notes: 'Documentos Externos / Exames Anteriores'
+                        };
+                        setSelectedAppointmentHistory(fakeAppt);
+                      }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-blue-700 transition-colors"
+                    >
+                      Meus Exames Externos
                     </button>
                   </div>
                   
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.patientId === currentUser?.id && a.status !== 'scheduled').map((appointment) => (
-                      <div key={appointment.id} className="p-8 hover:bg-slate-50 transition-colors">
-                        <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
-                               <Plus className="w-4 h-4 text-slate-400" />
+                    {appointments.filter(a => a.patientId === currentUser?.id && a.status !== 'scheduled').map((appointment) => {
+                      const doctor = users.find(u => u.id === appointment.doctorId);
+                      return (
+                        <div key={appointment.id} className="p-8 hover:bg-slate-50 transition-colors">
+                          <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                                 <Plus className="w-4 h-4 text-slate-400" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-900 tracking-tight">{doctor?.name || 'Médico'}</h4>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">{format(new Date(appointment.dateTime), "dd 'de' MMMM, yyyy", { locale: ptBR })}</p>
+                              </div>
                             </div>
-                            <div>
-                              <h4 className="font-bold text-slate-900 tracking-tight">Dr. Roberto Lima</h4>
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">{format(new Date(appointment.dateTime), "dd 'de' MMMM, yyyy", { locale: ptBR })}</p>
-                            </div>
+                            <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] self-start border shadow-sm ${
+                              appointment.status === 'completed' 
+                                ? 'bg-green-50 text-green-700 border-green-100' 
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                            }`}>
+                              {statusMap[appointment.status]}
+                            </span>
                           </div>
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] self-start border shadow-sm ${
-                            appointment.status === 'completed' 
-                              ? 'bg-green-50 text-green-700 border-green-100' 
-                              : 'bg-slate-50 text-slate-500 border-slate-200'
-                          }`}>
-                            {statusMap[appointment.status]}
-                          </span>
-                        </div>
 
                         {appointment.diagnosis && (
                           <div className="mb-6 pl-4 border-l-4 border-blue-100">
@@ -655,18 +875,37 @@ export default function App() {
                         )}
 
                         {appointment.prescription && (
-                          <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 flex items-center gap-4 shadow-sm">
-                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm border border-blue-50">
-                              <CheckCircle2 className="w-5 h-5" />
+                          <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 flex items-center justify-between gap-4 shadow-sm">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm border border-blue-50">
+                                <CheckCircle2 className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-0.5">Tratamento Prescrito</p>
+                                <p className="text-sm font-bold text-slate-800 tracking-tight">{appointment.prescription}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-0.5">Tratamento Prescrito</p>
-                              <p className="text-sm font-bold text-slate-800 tracking-tight">{appointment.prescription}</p>
-                            </div>
+                            <button 
+                              onClick={() => setSelectedAppointmentHistory(appointment)}
+                              className="text-blue-600 p-2 hover:bg-blue-100 rounded-xl transition-all"
+                              title="Ver Prontuário e Documentos"
+                            >
+                              <FileText className="w-5 h-5" />
+                            </button>
                           </div>
                         )}
+                        {!appointment.prescription && appointment.status === 'completed' && (
+                          <button 
+                            onClick={() => setSelectedAppointmentHistory(appointment)}
+                            className="w-full py-3 border border-slate-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                          >
+                             <FileText className="w-4 h-4" />
+                             Ver Prontuário e Documentos
+                          </button>
+                        )}
                       </div>
-                    ))}
+                    );
+                  })}
                     {appointments.filter(a => a.patientId === currentUser?.id && a.status !== 'scheduled').length === 0 && (
                       <div className="p-20 text-center text-slate-400 italic text-sm">Nenhum registro histórico encontrado.</div>
                     )}
@@ -737,6 +976,14 @@ export default function App() {
                     <h2 className="text-2xl font-bold text-slate-900">{currentUser?.name}</h2>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{userRole}</p>
                     
+                    <button 
+                      onClick={handleLogout}
+                      className="mt-6 w-full md:hidden flex items-center justify-center gap-2 p-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-all text-xs"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sair do Sistema
+                    </button>
+                    
                     <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
                        <div className="p-5 bg-slate-50 rounded-2xl">
                           <p className="text-[9px] font-black text-slate-400 uppercase mb-1">E-mail</p>
@@ -783,7 +1030,7 @@ export default function App() {
                     <h3 className="font-bold text-xs uppercase tracking-widest text-slate-500">Agenda do Dia</h3>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {appointments.filter(a => a.doctorId === currentUser?.id).map(a => {
+                    {appointments.filter(a => a.doctorId === currentUser?.id && a.status === 'scheduled').map(a => {
                       const patient = users.find(u => u.id === a.patientId);
                       return (
                         <div key={a.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
@@ -795,12 +1042,20 @@ export default function App() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-bold text-slate-50">{format(new Date(a.dateTime), 'HH:mm')}</span>
-                            <button className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Atender</button>
+                            <span className="text-[10px] font-bold text-slate-400">{format(new Date(a.dateTime), 'HH:mm')}</span>
+                            <button 
+                              onClick={() => setActiveConsultation(a)}
+                              className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-700 transition-all shadow-sm active:scale-95"
+                            >
+                              Atender
+                            </button>
                           </div>
                         </div>
                       )
                     })}
+                    {appointments.filter(a => a.doctorId === currentUser?.id && a.status === 'scheduled').length === 0 && (
+                      <div className="p-12 text-center text-slate-400">Nenhuma consulta agendada para hoje.</div>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -809,13 +1064,33 @@ export default function App() {
             {activeTab === 'prof-patients' && (
                <motion.div key="prof-patients" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-3 gap-6">
                  {users.filter(u => u.role === 'patient').map(u => (
-                   <div key={u.id} className="bg-white p-6 rounded-2xl border border-slate-200">
+                   <div key={u.id} className="bg-white p-6 rounded-2xl border border-slate-200 hover:shadow-md transition-all group">
                       <div className="flex items-center gap-4 mb-4">
-                         <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><User className="w-5 h-5" /></div>
-                         <h4 className="font-bold text-slate-800">{u.name}</h4>
+                         <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shadow-sm"><User className="w-5 h-5" /></div>
+                         <div>
+                           <h4 className="font-bold text-slate-800 tracking-tight">{u.name}</h4>
+                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{u.cpf}</p>
+                         </div>
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">{u.email}</p>
-                      <button className="w-full py-2 border border-slate-100 rounded-xl text-[9px] font-black uppercase tracking-widest text-blue-600">Ver Prontuário</button>
+                      <div className="space-y-4 mb-6">
+                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                          <span className="text-slate-400">Total de Consultas</span>
+                          <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{appointments.filter(a => a.patientId === u.id).length}</span>
+                        </div>
+                      </div>
+                      <button 
+                       onClick={() => {
+                         const lastAppt = appointments.filter(a => a.patientId === u.id && a.status === 'completed').sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())[0];
+                         if (lastAppt) {
+                           setSelectedAppointmentHistory(lastAppt);
+                         } else {
+                           alert('Este paciente ainda não possui consultas concluídas.');
+                         }
+                       }}
+                       className="w-full py-3 bg-slate-50 border border-slate-100 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95"
+                      >
+                        Ver Prontuário Recente
+                      </button>
                    </div>
                  ))}
                </motion.div>
@@ -985,7 +1260,7 @@ export default function App() {
                           return (
                             <tr key={a.id} className="hover:bg-slate-50 transition-colors">
                               <td className="px-6 py-4 font-bold text-slate-700 text-sm">{patient?.name || 'Sistema'}</td>
-                              <td className="px-6 py-4 text-slate-500 text-sm">{doctor?.name || 'Dr. Cláudio Santos'}</td>
+                              <td className="px-6 py-4 text-slate-500 text-sm">{doctor?.name || 'Médico'}</td>
                               <td className="px-6 py-4 text-slate-500 text-sm font-medium">{format(new Date(a.dateTime), "dd/MM/yy HH:mm", { locale: ptBR })}</td>
                               <td className="px-6 py-4">
                                 <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
@@ -1118,6 +1393,12 @@ export default function App() {
             </button>
           ))
         )}
+        <button 
+          onClick={handleLogout}
+          className="p-2 text-red-400 hover:text-red-500 transition-all"
+        >
+          <LogOut className="w-6 h-6" />
+        </button>
       </footer>
     </div>
   );

@@ -24,7 +24,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      // Look up admin role in the users collection or check specific admin email
+      // Look up admin role in the users collection - allow anonymous uids if they have the role
       return isSignedIn() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
         (request.auth.token.email == 'eletrotecnicamoderna@gmail.com')
@@ -72,15 +72,38 @@ service cloud.firestore {
              data.message is string && data.message.size() <= 1000;
     }
 
+    function isValidMedicalDocument(data) {
+      return data.keys().hasAll(['id', 'appointmentId', 'patientId', 'doctorId', 'type', 'title', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.appointmentId is string && data.appointmentId.size() <= 128 &&
+             data.patientId is string && data.patientId.size() <= 128 &&
+             data.doctorId is string && data.doctorId.size() <= 128 &&
+             data.type in ['clinical_record', 'prescription', 'exam', 'other'] &&
+             data.title is string && data.title.size() <= 200 &&
+             (!data.keys().contains('content') || data.content is string) &&
+             (!data.keys().contains('fileUrl') || data.fileUrl is string) &&
+             (!data.keys().contains('fileName') || data.fileName is string);
+    }
+
     // --- Rules ---
 
     match /users/{userId} {
       allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow list: if isAdmin() || isProfessional();
       
-      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incomingData()) && 
-                    incomingData().status == (incomingData().role == 'professional' ? 'pending' : 'active') &&
-                    (incomingData().role != 'admin' || incomingData().email == 'eletrotecnicamoderna@gmail.com');
+      // Allow viewing doctor list for all users, full list for professionals and admins
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        isProfessional() ||
+        (resource.data.role == 'professional' && resource.data.status == 'active') ||
+        resource.data.id == request.auth.uid
+      );
+      
+      allow create: if isSignedIn() && (
+        (isOwner(userId) && isValidUser(incomingData()) && 
+         incomingData().status == (incomingData().role == 'professional' ? 'pending' : 'active') &&
+         (incomingData().role != 'admin' || request.auth.token.email == 'eletrotecnicamoderna@gmail.com')) ||
+        isAdmin()
+      );
       
       allow update: if isSignedIn() && (
         (isOwner(userId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['name', 'phone', 'address', 'birthDate', 'specialty', 'crm']) && isValidUser(incomingData())) ||
@@ -110,7 +133,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && (
         (isAdmin() && incomingData().diff(existingData()).affectedKeys().hasOnly(['status', 'dateTime', 'doctorId']) && isValidAppointment(incomingData())) ||
-        (isOwner(existingData().doctorId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['diagnosis', 'prescription', 'status']) && isValidAppointment(incomingData()) && existingData().status != 'completed') ||
+        (isOwner(existingData().doctorId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['diagnosis', 'prescription', 'status', 'notes']) && isValidAppointment(incomingData()) && existingData().status != 'completed') ||
         (isOwner(existingData().patientId) && incomingData().diff(existingData()).affectedKeys().hasOnly(['status', 'notes']) && incomingData().status == 'canceled' && isValidAppointment(incomingData()))
       );
 
@@ -127,7 +150,47 @@ service cloud.firestore {
                     incomingData().diff(existingData()).affectedKeys().hasOnly(['isNew']) && 
                     isValidNotification(incomingData());
       
-      allow delete: if isSignedIn() && isOwner(existingData().userId);
+      allow delete: if isAdmin() && isOwner(existingData().userId);
+    }
+
+    match /medical_documents/{docId} {
+      function isValidMedicalDocument(data) {
+        return data.keys().hasAll(['id', 'appointmentId', 'patientId', 'doctorId', 'type', 'title', 'createdAt', 'allowedViewerIds']) &&
+               isValidId(data.id) &&
+               isValidId(data.appointmentId) &&
+               isValidId(data.patientId) &&
+               (isValidId(data.doctorId) || data.doctorId == 'external') &&
+               data.allowedViewerIds is list &&
+               data.type in ['clinical_record', 'prescription', 'exam', 'other'] &&
+               data.title is string && data.title.size() <= 200 &&
+               (!data.keys().contains('content') || data.content is string) &&
+               (!data.keys().contains('fileUrl') || data.fileUrl is string) &&
+               (!data.keys().contains('fileName') || data.fileName is string);
+      }
+
+      allow get: if isSignedIn() && (
+        request.auth.uid in resource.data.allowedViewerIds || 
+        isAdmin()
+      );
+      
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.allowedViewerIds || 
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() && (
+        (incomingData().doctorId == request.auth.uid && isValidMedicalDocument(incomingData())) ||
+        (incomingData().doctorId == 'external' && incomingData().patientId == request.auth.uid && isValidMedicalDocument(incomingData())) ||
+        (isAdmin() && isValidMedicalDocument(incomingData()))
+      );
+
+      allow update: if isSignedIn() && (
+        (existingData().doctorId == request.auth.uid && incomingData().diff(existingData()).affectedKeys().hasOnly(['title', 'content', 'fileUrl', 'fileName', 'type', 'allowedViewerIds']) && isValidMedicalDocument(incomingData())) ||
+        (existingData().doctorId == 'external' && existingData().patientId == request.auth.uid && incomingData().diff(existingData()).affectedKeys().hasOnly(['title', 'fileUrl', 'fileName', 'type', 'allowedViewerIds']) && isValidMedicalDocument(incomingData())) ||
+        (isAdmin() && isValidMedicalDocument(incomingData()))
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && (existingData().doctorId == request.auth.uid || (existingData().doctorId == 'external' && existingData().patientId == request.auth.uid)));
     }
   }
 }

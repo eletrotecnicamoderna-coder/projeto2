@@ -46,6 +46,22 @@ export interface Appointment {
   prescription?: string;
 }
 
+export type MedicalDocumentType = 'clinical_record' | 'prescription' | 'exam' | 'other';
+
+export interface MedicalDocument {
+  id: string;
+  appointmentId: string;
+  patientId: string;
+  doctorId: string;
+  allowedViewerIds: string[];
+  type: MedicalDocumentType;
+  title: string;
+  content?: string; // For records/prescriptions
+  fileUrl?: string; // For uploaded files (exam images/PDFs)
+  fileName?: string;
+  createdAt: string;
+}
+
 export interface Notification {
   id: string;
   userId: string; // Patient or Doctor ID

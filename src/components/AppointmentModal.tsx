@@ -6,29 +6,35 @@
 import { X, Calendar as CalendarIcon, Clock, User, AlertCircle, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addDays } from 'date-fns';
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
+import { Doctor } from '../types';
 
 interface AppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: any) => void;
+  doctors: Doctor[];
 }
 
-const DOCTORS = [
-  { id: 'd1', name: 'Dr. Cláudio Santos', specialty: 'Cardiologia' },
-  { id: 'd2', name: 'Dr. Roberto Lima', specialty: 'Clínico Geral' },
-  { id: 'd3', name: 'Dra. Ana Costa', specialty: 'Pediatria' },
-  { id: 'd4', name: 'Dra. Julia Souza', specialty: 'Ginecologia' },
-];
-
-export default function AppointmentModal({ isOpen, onClose, onSave }: AppointmentModalProps) {
-  const [selectedDoctor, setSelectedDoctor] = useState(DOCTORS[0].id);
+export default function AppointmentModal({ isOpen, onClose, onSave, doctors }: AppointmentModalProps) {
+  const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDate, setSelectedDate] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
   const [selectedTime, setSelectedTime] = useState('09:00');
   const [notes, setNotes] = useState('');
 
+  // Set initial doctor when doctors list loads
+  useEffect(() => {
+    if (doctors && doctors.length > 0 && !selectedDoctor) {
+      setSelectedDoctor(doctors[0].id);
+    }
+  }, [doctors, selectedDoctor]);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!selectedDoctor) {
+      alert('Por favor, selecione um especialista.');
+      return;
+    }
     onSave({
       doctorId: selectedDoctor,
       dateTime: `${selectedDate}T${selectedTime}:00Z`,
@@ -75,7 +81,8 @@ export default function AppointmentModal({ isOpen, onClose, onSave }: Appointmen
                       onChange={(e) => setSelectedDoctor(e.target.value)}
                       className="w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl appearance-none focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-bold text-sm text-slate-700 shadow-sm"
                     >
-                      {DOCTORS.map(doc => (
+                      {doctors.length === 0 && <option value="">Carregando especialistas...</option>}
+                      {doctors.map(doc => (
                         <option key={doc.id} value={doc.id}>{doc.name} • {doc.specialty}</option>
                       ))}
                     </select>
