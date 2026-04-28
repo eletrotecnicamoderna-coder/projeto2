@@ -295,8 +295,6 @@ export default function App() {
         alert('O login por Google está desativado no Firebase.\n\nPara ativar:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/providers\n2. Clique em "Adicionar novo provedor" (ou "Aba Fazer login")\n3. Escolha "Google" e clique em Ativar.');
       } else if (error.code === 'auth/unauthorized-domain') {
         alert('ERRO DE SEGURANÇA: Este link/domínio não está autorizado no Firebase.\n\nPara resolver agora:\n1. Acesse: https://console.firebase.google.com/project/' + (firebaseConfig as any).projectId + '/authentication/settings\n2. Clique na aba "Domínios de redirecionamento" (ou Domínios autorizados)\n3. Clique em "Adicionar domínio"\n4. Digite ou cole isto: ' + window.location.hostname + '\n5. Clique em "Adicionar".');
-      } else if (error.code === 'auth/api-key-not-found' || error.message.includes('api-key-not-found')) {
-        alert('ERRO DE CONFIGURAÇÃO: Chave de API não encontrada ou inválida.\n\nIsso geralmente acontece quando a chave substituída não pertence ao Projeto ID (' + (firebaseConfig as any).projectId + ') configurado.\n\nPor favor, use a chave original gerada pelo sistema ou forneça toda a configuração do seu projeto.');
       } else {
         alert('Erro ao entrar com Google: ' + error.message);
       }
