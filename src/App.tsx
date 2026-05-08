@@ -956,7 +956,9 @@ export default function App() {
                        <User className="w-12 h-12 text-slate-300" />
                     </div>
                     <h2 className="text-2xl font-bold text-slate-900">{currentUser?.name}</h2>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{userRole}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                      {userRole === 'admin' ? 'Administrador' : userRole === 'professional' ? 'Médico' : 'Paciente'}
+                    </p>
                     
                     <button 
                       onClick={handleLogout}
